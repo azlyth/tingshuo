@@ -1,8 +1,9 @@
 package com.MeadowEast.audiotest;
 
 import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
@@ -10,11 +11,10 @@ import java.util.Random;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
+import android.content.res.AssetFileDescriptor;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
-import android.net.Uri;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -28,9 +28,9 @@ public class MainActivity extends Activity implements OnClickListener, OnLongCli
 
 	private MediaPlayer mp;
 	private String[] cliplist;
-	private File sample;
-	private File mainDir;
-	private File clipDir;
+	private InputStream sample;
+	private String sampleFilename;
+	private String clipDir = "clips";
 	private Random rnd;
 	private Handler clockHandler;
 	private Runnable updateTimeTask;
@@ -46,27 +46,33 @@ public class MainActivity extends Activity implements OnClickListener, OnLongCli
 	private void readClipInfo(){
 		hanzi = new HashMap<String, String>();
 		instructions = new HashMap<String, String>();
-		File file =  new File(mainDir, "clipinfo.txt");
-		Log.d(TAG, "before");
-		Log.d(TAG, "after");
+		
+		// Open the clipinfo.txt asset
+		InputStream clipInfo = null;
 		try {
-			FileReader fr = new FileReader ( file );
-			BufferedReader in = new BufferedReader( fr );
+			clipInfo = getAssets().open("clipinfo.txt");
+		} catch (IOException e1) {
+			// TODO: handle nicely (and exit probably)
+			e1.printStackTrace();
+		} 	
+		
+		try {
+			BufferedReader in = new BufferedReader(new InputStreamReader(clipInfo));
 			String line;
-			while ((line = in.readLine(  )) != null){
+			while ((line = in.readLine()) != null){
 				String fixedline = new String(line.getBytes(), "utf-8");
 				String [] fields = fixedline.split("\\t");
 				if (fields.length == 3){
 					hanzi.put(fields[0], fields[1]);
 					instructions.put(fields[0], fields[2]);
 				} else {
-					Log.d(TAG, "Bad line: "+fields.length+" elements");
+					Log.d(TAG, "Bad line: " + fields.length + " elements");
 					Log.d(TAG, fixedline);
 				}
 			}
 			in.close();
 		}
-		catch ( Exception e ) {
+		catch (Exception e) {
 			Log.d(TAG, "Problem reading clipinfo");
 		}
 	}
@@ -141,16 +147,12 @@ public class MainActivity extends Activity implements OnClickListener, OnLongCli
         Log.d(TAG, "testing only");
         // File filesDir = getFilesDir();  // Use on virtual device
         
-        File sdCard = Environment.getExternalStorageDirectory();
-               
-        mainDir = new File (sdCard.getAbsolutePath() + "/Android/data/com.MeadowEast.audiotest/files");
-        
-        // old
-        //File filesDir = new File (sdCard.getAbsolutePath() + "/Android/data/com.MeadowEast.audiotest/files");      
-        //mainDir = new File(filesDir, "ChineseAudioTrainer");
-        
-        clipDir = new File(mainDir, "clips");
-        cliplist = clipDir.list();
+        try {
+			cliplist = getAssets().list(clipDir);
+		} catch (IOException e) {
+			// the clips 
+			e.printStackTrace();
+		}
         readClipInfo();
         rnd = new Random();
         setContentView(R.layout.activity_main);
@@ -173,9 +175,15 @@ public class MainActivity extends Activity implements OnClickListener, OnLongCli
         	elapsedMillis = savedInstanceState.getLong("elapsedMillis");
         	Log.d(TAG, "elapsedMillis restored to"+elapsedMillis);
         	key = savedInstanceState.getString("key");
-        	String sampleName = savedInstanceState.getString("sample");
-        	if (sampleName.length() > 0)
-        		sample = new File(clipDir, sampleName);
+        	sampleFilename = savedInstanceState.getString("sample");
+        	if (sampleFilename.length() > 0) {
+				try {
+					sample = getAssets().open(sampleFilename);
+				} catch (IOException e) {
+					// Filename doesn't match a file.
+					e.printStackTrace();
+				}
+        	}
         	if (savedInstanceState.getBoolean("running"))
         		toggleClock();
         	else 
@@ -200,7 +208,7 @@ public class MainActivity extends Activity implements OnClickListener, OnLongCli
     public void onSaveInstanceState(Bundle outState) {
     	super.onSaveInstanceState(outState);
     	String sampleName = "";
-    	if (sample != null) sampleName = sample.getName();
+    	if (sample != null) sampleName = sampleFilename;
     	outState.putString("sample", sampleName);
     	// onPause has stopped the clock if it was running, so we just save elapsedMillis
     	outState.putLong("elapsedMillis", elapsedMillis);
@@ -233,15 +241,26 @@ public class MainActivity extends Activity implements OnClickListener, OnLongCli
     	return true;
     }
     
-    public void onClick(View v){
-    	switch (v.getId()){
+    public void onClick(View v) {
+    	switch (v.getId()) {
+    	
     	case R.id.playButton:
     		Integer index = rnd.nextInt(cliplist.length);
-    		sample = new File(clipDir, cliplist[index]);
-			key = sample.getName();
+    		sampleFilename = cliplist[index];
+    		try {
+				sample = getAssets().open(clipDir + "/" + sampleFilename);
+			} catch (IOException e1) {
+				// File with filename doesn't exist
+				e1.printStackTrace();
+			}
+			key = sampleFilename;
+			
+			// Remove ".mp3" from the end of the filename
 			key = key.substring(0, key.length()-4);
+			
 			TextView t  = (TextView) findViewById(R.id.instructionTextView);
 			t.setText(getInstruction(key));
+    	
     	case R.id.repeatButton:
     		if (!clockRunning) toggleClock();
     		if (sample != null){
@@ -253,7 +272,9 @@ public class MainActivity extends Activity implements OnClickListener, OnLongCli
     			mp = new MediaPlayer();
     			mp.setAudioStreamType(AudioManager.STREAM_MUSIC);
     			try {
-    				mp.setDataSource(getApplicationContext(), Uri.fromFile(sample));
+    				AssetFileDescriptor descriptor = getAssets().openFd(clipDir + "/" + sampleFilename);
+    				mp.setDataSource(descriptor.getFileDescriptor(), descriptor.getStartOffset(), descriptor.getLength());
+    				descriptor.close();
     				mp.prepare();
     				mp.start();
     			} catch (Exception e) {
@@ -261,10 +282,12 @@ public class MainActivity extends Activity implements OnClickListener, OnLongCli
     			}
     		}
     		break;
+    	
     	case R.id.hanziButton:
     		if (!clockRunning) toggleClock();
     		if (sample != null) setHanzi(hanzi.get(key)); // Should add default value: error message if no hanzi for key
             break;
+    	
     	case R.id.timerTextView:
             new AlertDialog.Builder(this)
             .setIcon(android.R.drawable.ic_dialog_alert)
