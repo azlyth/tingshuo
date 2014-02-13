@@ -5,7 +5,7 @@
     android:layout_height="fill_parent"
     android:orientation="vertical"
     android:padding="10dp" >
-
+
     <TextView
         android:id="@+id/timerTextView"
         android:layout_width="wrap_content"
@@ -15,16 +15,16 @@
         android:text="@string/startTime"
         android:textAppearance="?android:attr/textAppearanceSmall"
         android:textSize="30sp" />
-
-     <TextView
-         android:id="@+id/hanziTextView"
-         android:layout_width="fill_parent"
-         android:layout_height="0dp"
-         android:layout_weight="1"
-         android:ems="10"
-         android:gravity="center"
-         android:textSize="50sp" />
-
+
+    <TextView
+        android:id="@+id/hanziTextView"
+        android:layout_width="fill_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:ems="10"
+        android:gravity="center"
+        android:textSize="50sp" />
+
     <TextView
         android:id="@+id/instructionTextView"
         android:layout_width="wrap_content"
@@ -37,7 +37,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center" >
-
+
         <Button
             android:id="@+id/playButton"
             android:layout_width="wrap_content"
@@ -46,7 +46,7 @@
             android:layout_marginRight="10dp"
             android:text="@string/playButtonLabel"
             android:textSize="70sp" />
-
+
         <Button
             android:id="@+id/hanziButton"
             android:layout_width="wrap_content"
@@ -55,7 +55,7 @@
             android:layout_marginRight="10dp"
             android:text="@string/hanziButtonLabel"
             android:textSize="70sp" />
-        
+
         <Button
             android:id="@+id/repeatButton"
             android:layout_width="wrap_content"
@@ -64,7 +64,7 @@
             android:layout_marginRight="10dp"
             android:text="@string/repeatButtonLabel"
             android:textSize="70sp" />
-        
+
         <Button
             android:id="@+id/pauseButton"
             android:layout_width="wrap_content"
@@ -74,13 +74,13 @@
             android:text="@string/pauseButtonLabel"
             android:textSize="70sp" />
 
-<!--         <ImageButton -->
-<!--             android:id="@+id/pauseButton" -->
-<!--             android:layout_width="wrap_content" -->
-<!--             android:layout_height="wrap_content" -->
-<!--             android:background="#0000ff" -->
-<!--             android:contentDescription="@string/buttonLabel" -->
-<!--             android:src="@drawable/ic_action_search" /> -->
+        <!-- <ImageButton -->
+        <!-- android:id="@+id/pauseButton" -->
+        <!-- android:layout_width="wrap_content" -->
+        <!-- android:layout_height="wrap_content" -->
+        <!-- android:background="#0000ff" -->
+        <!-- android:contentDescription="@string/buttonLabel" -->
+        <!-- android:src="@drawable/ic_action_search" /> -->
 
     </LinearLayout>
 
