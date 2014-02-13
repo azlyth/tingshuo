@@ -4,6 +4,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
@@ -18,16 +19,19 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.util.Log;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.View.OnLongClickListener;
+import android.view.View.OnTouchListener;
 import android.widget.TextView;
 import android.widget.Toast;
 
-public class MainActivity extends Activity implements OnClickListener, OnLongClickListener {
+public class MainActivity extends Activity implements OnClickListener, OnLongClickListener, OnTouchListener {
 
 	private MediaPlayer mp;
 	private String[] cliplist;
+	private ArrayList<String> clipHistory;
 	private InputStream sample;
 	private String sampleFilename;
 	private String clipDir = "clips";
@@ -41,11 +45,13 @@ public class MainActivity extends Activity implements OnClickListener, OnLongCli
 	private Map<String, String> hanzi;
 	private Map<String, String> instructions;
 	private String key;	
+	private Toast no_previous_toast;
 	static final String TAG = "CAT";
 	
 	private void readClipInfo(){
 		hanzi = new HashMap<String, String>();
 		instructions = new HashMap<String, String>();
+		clipHistory = new ArrayList<String>();
 		
 		// Open the clipinfo.txt asset
 		InputStream clipInfo = null;
@@ -139,39 +145,107 @@ public class MainActivity extends Activity implements OnClickListener, OnLongCli
 		TextView t  = (TextView) findViewById(R.id.hanziTextView);
 		t.setText(s);
 	}
+    
+    private void setSample(String filename) {
+    	sampleFilename = filename;
+    	try {
+			sample = getAssets().open(clipDir + "/" + sampleFilename);
+		} catch (IOException e1) {
+			// File with filename doesn't exist
+			e1.printStackTrace();
+		}
+		key = sampleFilename;
+		
+		// Remove ".mp3" from the end of the filename
+		key = key.substring(0, key.length()-4);
+		
+		TextView t  = (TextView) findViewById(R.id.instructionTextView);
+		t.setText(getInstruction(key));
+    }
+    
+    private void playSample() {
+    	if (!clockRunning) toggleClock();
+		if (sample != null){
+			setHanzi("");
+			if (mp != null){
+				mp.stop();
+				mp.release();
+			}
+			mp = new MediaPlayer();
+			mp.setAudioStreamType(AudioManager.STREAM_MUSIC);
+			try {
+				AssetFileDescriptor descriptor = getAssets().openFd(clipDir + "/" + sampleFilename);
+				mp.setDataSource(descriptor.getFileDescriptor(), descriptor.getStartOffset(), descriptor.getLength());
+				descriptor.close();
+				mp.prepare();
+				mp.start();
+			} catch (Exception e) {
+				Log.d(TAG, "Couldn't get mp3 file");
+			}
+		}
+    }
+    
+    private void playLastSample() {
+    	if (clipHistory.size() == 0) {
+    		if (no_previous_toast != null) {
+    			no_previous_toast.cancel();
+    		}
+    		no_previous_toast = Toast.makeText(MainActivity.this, "You have no previous clips.", Toast.LENGTH_SHORT);
+    		no_previous_toast.show();
+    		return;
+    	}
+    	
+    	int index = clipHistory.size() - 1;
+    	setSample(clipHistory.remove(index));
+    	playSample();
+    }
 	
 	
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         Log.d(TAG, "testing only");
-        // File filesDir = getFilesDir();  // Use on virtual device
         
         try {
 			cliplist = getAssets().list(clipDir);
 		} catch (IOException e) {
-			// the clips 
+			// the clip directory doesn't exist
 			e.printStackTrace();
 		}
+        
         readClipInfo();
-        rnd = new Random();
         setContentView(R.layout.activity_main);
-        findViewById(R.id.playButton).setOnClickListener(this);
-        findViewById(R.id.repeatButton).setOnClickListener(this);
-        findViewById(R.id.hanziButton).setOnClickListener(this);
-        findViewById(R.id.timerTextView).setOnClickListener(this);
-        findViewById(R.id.hanziTextView).setOnLongClickListener(this);
+
+        rnd = new Random();
         clockHandler = new Handler();
         start = System.currentTimeMillis();
         elapsedMillis = 0L;
         clockRunning = false;
         createUpdateTimeTask();
+        
+        findViewById(R.id.playButton).setOnClickListener(this);
+        findViewById(R.id.repeatButton).setOnClickListener(this);
+        findViewById(R.id.hanziButton).setOnClickListener(this);
+        findViewById(R.id.timerTextView).setOnClickListener(this);
+        findViewById(R.id.hanziTextView).setOnLongClickListener(this);
+        
+
         findViewById(R.id.pauseButton).setOnClickListener(new OnClickListener() {
         	public void onClick(View v) {
         		toggleClock();
         	}
         });
+        
+        findViewById(R.id.hanziTextView).setOnTouchListener(new OnSwipeTouchListener(this) {
+            public void onSwipeRight() {
+            	playLastSample();
+            }
+        });
+        
         if (savedInstanceState != null){
+        	// Restore the clip history
+        	clipHistory = savedInstanceState.getBundle("data").getStringArrayList("clipHistory");
+        	
         	elapsedMillis = savedInstanceState.getLong("elapsedMillis");
         	Log.d(TAG, "elapsedMillis restored to"+elapsedMillis);
         	key = savedInstanceState.getString("key");
@@ -216,10 +290,16 @@ public class MainActivity extends Activity implements OnClickListener, OnLongCli
 		outState.putString("instruction", t.getText().toString());
 		outState.putString("key", key);
 		outState.putBoolean("running", clockWasRunning);
+		
+		// Save the clip history
+		Bundle bundle = new Bundle();
+		bundle.putStringArrayList("clipHistory", clipHistory);
+		outState.putBundle("data", bundle);
     }
     
     public void reset(){
     	TextView t;
+    	clipHistory.clear();
 		if (clockRunning) toggleClock();
 		start = 0L;
 		elapsedMillis = 0L;
@@ -245,42 +325,15 @@ public class MainActivity extends Activity implements OnClickListener, OnLongCli
     	switch (v.getId()) {
     	
     	case R.id.playButton:
-    		Integer index = rnd.nextInt(cliplist.length);
-    		sampleFilename = cliplist[index];
-    		try {
-				sample = getAssets().open(clipDir + "/" + sampleFilename);
-			} catch (IOException e1) {
-				// File with filename doesn't exist
-				e1.printStackTrace();
-			}
-			key = sampleFilename;
-			
-			// Remove ".mp3" from the end of the filename
-			key = key.substring(0, key.length()-4);
-			
-			TextView t  = (TextView) findViewById(R.id.instructionTextView);
-			t.setText(getInstruction(key));
-    	
-    	case R.id.repeatButton:
-    		if (!clockRunning) toggleClock();
-    		if (sample != null){
-    			setHanzi("");
-    			if (mp != null){
-    				mp.stop();
-    				mp.release();
-    			}
-    			mp = new MediaPlayer();
-    			mp.setAudioStreamType(AudioManager.STREAM_MUSIC);
-    			try {
-    				AssetFileDescriptor descriptor = getAssets().openFd(clipDir + "/" + sampleFilename);
-    				mp.setDataSource(descriptor.getFileDescriptor(), descriptor.getStartOffset(), descriptor.getLength());
-    				descriptor.close();
-    				mp.prepare();
-    				mp.start();
-    			} catch (Exception e) {
-    				Log.d(TAG, "Couldn't get mp3 file");
-    			}
+    		// Save the current sample
+    		if (sampleFilename != null) {
+        		clipHistory.add(sampleFilename);
     		}
+    		Integer index = rnd.nextInt(cliplist.length);
+    		setSample(cliplist[index]);
+    		    	
+    	case R.id.repeatButton:
+    		playSample();
     		break;
     	
     	case R.id.hanziButton:
@@ -324,5 +377,10 @@ public class MainActivity extends Activity implements OnClickListener, OnLongCli
         	return super.onKeyDown(keyCode, event);
         }
     }
+
+	public boolean onTouch(View v, MotionEvent event) {
+		// TODO Auto-generated method stub
+		return false;
+	}
 
 }
