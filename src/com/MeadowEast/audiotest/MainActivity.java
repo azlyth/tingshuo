@@ -12,6 +12,7 @@ import java.util.Random;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
+import android.content.Intent;
 import android.content.res.AssetFileDescriptor;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
@@ -229,7 +230,6 @@ public class MainActivity extends Activity implements OnClickListener, OnLongCli
         findViewById(R.id.timerTextView).setOnClickListener(this);
         findViewById(R.id.hanziTextView).setOnLongClickListener(this);
         
-
         findViewById(R.id.pauseButton).setOnClickListener(new OnClickListener() {
         	public void onClick(View v) {
         		toggleClock();
@@ -314,7 +314,17 @@ public class MainActivity extends Activity implements OnClickListener, OnLongCli
     public boolean onLongClick(View v){
     	switch (v.getId()){
     	case R.id.hanziTextView:
-    		Toast.makeText(this, "Clip: "+key, Toast.LENGTH_LONG).show();
+    		Intent intent = new Intent(Intent.ACTION_SEND);
+    		intent.setType("message/rfc822");
+    		intent.putExtra(Intent.EXTRA_EMAIL, new String[] {getString(R.string.authorEmail)});
+    		intent.putExtra(Intent.EXTRA_SUBJECT, "[TingShuo] Message to the author");
+    		// Include file information if we have it
+    		if (sampleFilename != null) {
+    			intent.putExtra(Intent.EXTRA_TEXT, "File:\n " + sampleFilename +
+    												"\n\nInstruction and hanzi:\n" + getInstruction(key) + "\n" + hanzi.get(key) +
+    												"\n\n" + "Message:\n");
+    		}
+    		startActivity(Intent.createChooser(intent, "Send mail to author"));
     		Log.d(TAG, "Long clicked");
     		break;	
     	}
@@ -379,7 +389,6 @@ public class MainActivity extends Activity implements OnClickListener, OnLongCli
     }
 
 	public boolean onTouch(View v, MotionEvent event) {
-		// TODO Auto-generated method stub
 		return false;
 	}
 

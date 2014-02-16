@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">AudioTest</string>
     <string name="title_activity_main">Tīng​Shuō​</string>
+    <string name="authorEmail">cullen.schaffer@hunter.cuny.edu</string>
     <string name="playButtonLabel">说</string>
     <string name="hanziButtonLabel">字</string>
     <string name="repeatButtonLabel">重</string>
