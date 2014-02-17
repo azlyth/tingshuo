@@ -20,4 +20,8 @@
     <string name="switchWhat">Switch to what?</string>
     <string name="setReadingMode">Reading mode</string>
     <string name="setListeningMode">Listening mode</string>
+    <string name="selectClips">Select clips</string>
+    <string name="selectAll">Select all</string>
+    <string name="deselectAll">Deselect all</string>
+    <string name="selectionComplete">OK</string>
 </resources>

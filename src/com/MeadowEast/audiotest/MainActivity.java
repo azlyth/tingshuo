@@ -6,11 +6,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
 
 import android.app.AlertDialog;
+import android.app.AlertDialog.Builder;
+import android.app.Dialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -22,6 +25,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.support.v4.app.FragmentActivity;
 import android.util.Log;
+import android.util.SparseBooleanArray;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.Menu;
@@ -32,6 +36,9 @@ import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.View.OnLongClickListener;
 import android.view.View.OnTouchListener;
+import android.widget.ArrayAdapter;
+import android.widget.ListView;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -49,6 +56,7 @@ public class MainActivity extends FragmentActivity implements
 	private PracticeMode practiceMode;
 	private MediaPlayer mp;
 	private String[] cliplist;
+	private String[] enabledClipList;
 	private ArrayList<String> clipHistory;
 	private FileInputStream sample;
 	private String sampleFilename;
@@ -67,6 +75,7 @@ public class MainActivity extends FragmentActivity implements
 	private Toast no_previous_toast;
 	private boolean goalCompletionNotified;
 	private SharedPreferences sharedPref;
+	private boolean[] activeClips;
 	static final String TAG = "CAT";
 
 	private void readClipInfo() {
@@ -324,6 +333,11 @@ public class MainActivity extends FragmentActivity implements
 		d.unzip();
 
 		cliplist = getFilesDir().list();
+		enabledClipList = cliplist.clone();
+		activeClips = new boolean[cliplist.length];
+		// Initialize activeClips to true
+		for (int i = 0; i < activeClips.length; i++)
+			activeClips[i] = true;
 
 		readClipInfo();
 
@@ -348,12 +362,16 @@ public class MainActivity extends FragmentActivity implements
 			// Restore the clip history
 			clipHistory = savedInstanceState.getBundle("data")
 					.getStringArrayList("clipHistory");
-
+			
 			elapsedMillis = savedInstanceState.getLong("elapsedMillis");
 			Log.d(TAG, "elapsedMillis restored to" + elapsedMillis);
 			key = savedInstanceState.getString("key");
 			sampleFilename = savedInstanceState.getString("sample");
+			goalCompletionNotified = savedInstanceState
+					.getBoolean("goalCompletionNotified");
 
+			enabledClipList = savedInstanceState.getStringArray("enabledClipList");
+			
 			// Restore the hanzi if it's reading mode
 			if (practiceMode == PracticeMode.READING)
 				displayHanzi();
@@ -421,16 +439,114 @@ public class MainActivity extends FragmentActivity implements
 			else
 				setPracticeMode(PracticeMode.LISTENING);
 			return true;
+		case R.id.selectClips:
+			// Create a dialog (Android's pop-up)
+			// Note: Setup correctly titled buttons with placeholder onClicks
+			// (they will be overwritten further down)
+			View dialogLayout = getLayoutInflater().inflate(
+					R.layout.select_clips, null);
+			final AlertDialog dialog = new AlertDialog.Builder(this)
+					.setView(dialogLayout)
+					.setTitle(R.string.selectClips)
+					.setPositiveButton(R.string.selectionComplete,
+							new DialogInterface.OnClickListener() {
+								public void onClick(DialogInterface dialog,
+										int id) {
+								}
+							})
+					.setNegativeButton(R.string.selectAll,
+							new DialogInterface.OnClickListener() {
+								public void onClick(DialogInterface dialog,
+										int id) {
+								}
+							})
+					.setNeutralButton(R.string.deselectAll,
+							new DialogInterface.OnClickListener() {
+								public void onClick(DialogInterface dialog,
+										int id) {
+								}
+							}).create();
+
+			// Populate the list view
+			ListView listView = (ListView) dialogLayout
+					.findViewById(R.id.clipsListView);
+			listView.setChoiceMode(ListView.CHOICE_MODE_MULTIPLE);
+			ArrayAdapter<String> adp = new ArrayAdapter<String>(this,
+					android.R.layout.simple_list_item_multiple_choice, cliplist);
+			listView.setAdapter(adp);
+			
+			// Select the enabled clips in the list view
+			for (int i = 0; i < adp.getCount(); i++)
+				listView.setItemChecked(i, activeClips[i]);
+			
+			// Display the dialog
+			dialog.show();
+
+			// Override the buttons to stop the automatic dialog dismissal
+			dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(
+					new View.OnClickListener() {
+						public void onClick(View v) {
+							ListView lv = (ListView) dialog
+									.findViewById(R.id.clipsListView);
+							SparseBooleanArray checked = lv
+									.getCheckedItemPositions();
+
+							// Only dismiss if something was picked
+							if (checked.size() == 0) {
+								Toast.makeText(MainActivity.this,
+										"You have to pick at least one clip.",
+										Toast.LENGTH_SHORT).show();
+							} else {
+								// Copy values into the boolean array
+								int totalActive = 0;
+								for (int i = 0; i < checked.size(); i++) {
+									activeClips[i] = checked.get(i);
+									if (activeClips[i])
+										totalActive++;
+								}
+								
+								// Create the new list of available filenames
+								int current = 0;
+								enabledClipList = new String[totalActive];
+								for (int i = 0; i < activeClips.length; i++) {
+									if (activeClips[i]) {
+										enabledClipList[current] = cliplist[i];
+										current++;
+									}
+								}								
+								
+								// Close the dialog
+								dialog.dismiss();
+							}
+						}
+					});
+			dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(
+					new View.OnClickListener() {
+						public void onClick(View v) {
+							ListView lv = (ListView) dialog
+									.findViewById(R.id.clipsListView);
+							setAllListViewItemsTo(lv, true);
+						}
+					});
+			dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(
+					new OnClickListener() {
+						public void onClick(View v) {
+							ListView lv = (ListView) dialog
+									.findViewById(R.id.clipsListView);
+							setAllListViewItemsTo(lv, false);
+						}
+					});
+			return true;
 		default:
 			return super.onOptionsItemSelected(item);
 		}
 	}
 
-	// @Override
-	// public void onDialogHmsSet(int reference, int hours, int minutes,
-	// int seconds) {
-	// text.setText("" + hours + ":" + minutes + ":" + seconds);
-	// }
+	public void setAllListViewItemsTo(ListView lv, boolean value) {
+		for (int i = 0; i < lv.getAdapter().getCount(); i++) {
+			lv.setItemChecked(i, value);
+		}
+	}
 
 	public void onPause() {
 		super.onPause();
@@ -453,7 +569,9 @@ public class MainActivity extends FragmentActivity implements
 		outState.putString("instruction", t.getText().toString());
 		outState.putString("key", key);
 		outState.putBoolean("running", clockWasRunning);
+		outState.putBoolean("goalCompletionNotified", goalCompletionNotified);
 		outState.putInt("goalSeconds", goalSeconds);
+		outState.putStringArray("enabledClipList", enabledClipList);
 
 		// Save the clip history
 		Bundle bundle = new Bundle();
@@ -510,8 +628,8 @@ public class MainActivity extends FragmentActivity implements
 			if (sampleFilename != null) {
 				clipHistory.add(sampleFilename);
 			}
-			Integer index = rnd.nextInt(cliplist.length);
-			setSample(cliplist[index]);
+			Integer index = rnd.nextInt(enabledClipList.length);
+			setSample(enabledClipList[index]);
 
 		case R.id.repeatButton:
 			playSample();
