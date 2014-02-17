@@ -13,5 +13,6 @@
     <string name="reallyReset">Reset timer and discard current clip?</string>
     <string name="quit">Confirm quit</string>
     <string name="reallyQuit">Quit?  This will reset timer and discard current clip.</string>
-    <string name="menuTimeGoal">Set time goal</string>
+    <string name="setTimeGoal">Set time goal</string>
+    <string name="clearTimeGoal">Clear time goal</string>
 </resources>

@@ -10,18 +10,23 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
 
-import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
+import android.media.ToneGenerator;
 import android.os.Bundle;
 import android.os.Handler;
+import android.support.v4.app.FragmentActivity;
 import android.util.Log;
 import android.view.KeyEvent;
+import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.View.OnClickListener;
@@ -30,10 +35,11 @@ import android.view.View.OnTouchListener;
 import android.widget.TextView;
 import android.widget.Toast;
 
-//import com.doomonafireball.betterpickers.hmspicker.HmsPickerBuilder;
-//import com.doomonafireball.betterpickers.hmspicker.HmsPickerDialogFragment;
+import com.doomonafireball.betterpickers.hmspicker.HmsPickerBuilder;
+import com.doomonafireball.betterpickers.hmspicker.HmsPickerDialogFragment;
 
-public class MainActivity extends Activity implements OnClickListener,
+public class MainActivity extends FragmentActivity implements
+		HmsPickerDialogFragment.HmsPickerDialogHandler, OnClickListener,
 		OnLongClickListener, OnTouchListener {
 
 	private MediaPlayer mp;
@@ -49,10 +55,13 @@ public class MainActivity extends Activity implements OnClickListener,
 	private boolean clockWasRunning;
 	private Long elapsedMillis;
 	private Long start;
+	private int goalSeconds;
 	private Map<String, String> hanzi;
 	private Map<String, String> instructions;
 	private String key;
 	private Toast no_previous_toast;
+	private boolean goalCompletionNotified;
+	private SharedPreferences sharedPref;
 	static final String TAG = "CAT";
 
 	private void readClipInfo() {
@@ -130,6 +139,19 @@ public class MainActivity extends Activity implements OnClickListener,
 
 	private void showTime(Long totalMillis) {
 		int seconds = (int) (totalMillis / 1000);
+
+		// Beep if we've the timer has gone above the goal time
+		if (goalSeconds != 0 && seconds >= goalSeconds) {
+			if (!goalCompletionNotified) {
+				// Make a beep
+				ToneGenerator toneG = new ToneGenerator(
+						AudioManager.STREAM_ALARM, 90);
+				toneG.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 250);
+				goalCompletionNotified = true;
+
+			}
+		}
+
 		int minutes = seconds / 60;
 		seconds = seconds % 60;
 		TextView t = (TextView) findViewById(R.id.timerTextView);
@@ -224,10 +246,13 @@ public class MainActivity extends Activity implements OnClickListener,
 		readClipInfo();
 		setContentView(R.layout.activity_main);
 
+		sharedPref = getPreferences(Context.MODE_PRIVATE);
 		rnd = new Random();
 		clockHandler = new Handler();
 		start = System.currentTimeMillis();
 		elapsedMillis = 0L;
+		goalSeconds = sharedPref.getInt("goalSeconds", 0);
+		goalCompletionNotified = false;
 		clockRunning = false;
 		createUpdateTimeTask();
 
@@ -288,6 +313,33 @@ public class MainActivity extends Activity implements OnClickListener,
 		return true;
 	}
 
+	public boolean onPrepareOptionsMenu(Menu menu) {
+		menu.findItem(R.id.clearTimeGoal).setVisible(goalSeconds != 0);
+		return true;
+	}
+
+	@Override
+	public boolean onOptionsItemSelected(MenuItem item) {
+		switch (item.getItemId()) {
+		case R.id.setTimeGoal:
+			HmsPickerBuilder hpb = new HmsPickerBuilder().setFragmentManager(
+					getSupportFragmentManager()).setStyleResId(
+					R.style.BetterPickersDialogFragment_Light);
+			hpb.show();
+			return true;
+		case R.id.clearTimeGoal:
+			goalSeconds = 0;
+			goalCompletionNotified = false;
+			SharedPreferences.Editor editor = sharedPref.edit();
+			// We can call clear because there are no other preferences stored
+			// as of right now.
+			editor.clear();
+			editor.commit();
+		default:
+			return super.onOptionsItemSelected(item);
+		}
+	}
+
 	// @Override
 	// public void onDialogHmsSet(int reference, int hours, int minutes,
 	// int seconds) {
@@ -315,6 +367,7 @@ public class MainActivity extends Activity implements OnClickListener,
 		outState.putString("instruction", t.getText().toString());
 		outState.putString("key", key);
 		outState.putBoolean("running", clockWasRunning);
+		outState.putInt("goalSeconds", goalSeconds);
 
 		// Save the clip history
 		Bundle bundle = new Bundle();
@@ -327,8 +380,12 @@ public class MainActivity extends Activity implements OnClickListener,
 		clipHistory.clear();
 		if (clockRunning)
 			toggleClock();
+
+		// Reset time data
 		start = 0L;
 		elapsedMillis = 0L;
+		goalCompletionNotified = false;
+
 		sample = null;
 		t = (TextView) findViewById(R.id.timerTextView);
 		t.setText("0:00");
@@ -422,6 +479,18 @@ public class MainActivity extends Activity implements OnClickListener,
 
 	public boolean onTouch(View v, MotionEvent event) {
 		return false;
+	}
+
+	public void onDialogHmsSet(int reference, int hours, int minutes,
+			int seconds) {
+		goalSeconds = seconds;
+		goalSeconds += minutes * 60;
+		goalSeconds += hours * 60 * 60;
+
+		// Save this value to shared preferences so we can keep it saved
+		SharedPreferences.Editor editor = sharedPref.edit();
+		editor.putInt("goalSeconds", goalSeconds);
+		editor.commit();
 	}
 
 }
