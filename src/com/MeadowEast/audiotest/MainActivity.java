@@ -42,6 +42,11 @@ public class MainActivity extends FragmentActivity implements
 		HmsPickerDialogFragment.HmsPickerDialogHandler, OnClickListener,
 		OnLongClickListener, OnTouchListener {
 
+	public enum PracticeMode {
+		LISTENING, READING
+	};
+
+	private PracticeMode practiceMode;
 	private MediaPlayer mp;
 	private String[] cliplist;
 	private ArrayList<String> clipHistory;
@@ -126,11 +131,11 @@ public class MainActivity extends FragmentActivity implements
 	}
 
 	private void toggleClock() {
-		if (clockRunning) {
+		if (clockRunning)
 			elapsedMillis += System.currentTimeMillis() - start;
-			setHanzi("");
-		} else
+		else
 			start = System.currentTimeMillis();
+
 		clockRunning = !clockRunning;
 		clockHandler.removeCallbacks(updateTimeTask);
 		if (clockRunning)
@@ -172,7 +177,7 @@ public class MainActivity extends FragmentActivity implements
 		};
 	}
 
-	private void setHanzi(String s) {
+	private void displayHanzi(String s) {
 		TextView t = (TextView) findViewById(R.id.hanziTextView);
 		t.setText(s);
 	}
@@ -191,15 +196,25 @@ public class MainActivity extends FragmentActivity implements
 		// Remove ".mp3" from the end of the filename
 		key = key.substring(0, key.length() - 4);
 
-		TextView t = (TextView) findViewById(R.id.instructionTextView);
-		t.setText(getInstruction(key));
+		// Display the instruction
+		if (practiceMode == PracticeMode.LISTENING) {
+			// Display the instruction
+			displayInstruction();
+		} else {
+			displayHanzi();
+		}
 	}
 
 	private void playSample() {
+		// Clear the hanzi if in listening mode
+		if (practiceMode == PracticeMode.LISTENING)
+			displayHanzi("");
+
+		// Start the clock if off
 		if (!clockRunning)
 			toggleClock();
+
 		if (sample != null) {
-			setHanzi("");
 			if (mp != null) {
 				mp.stop();
 				mp.release();
@@ -232,35 +247,32 @@ public class MainActivity extends FragmentActivity implements
 		playSample();
 	}
 
-	@Override
-	public void onCreate(Bundle savedInstanceState) {
-		super.onCreate(savedInstanceState);
-		Log.d(TAG, "testing only");
+	public void setPracticeMode(PracticeMode pm) {
+		practiceMode = pm;
 
-		// Decompress the zip file
-		Decompress d = new Decompress(zipFile, this);
-		d.unzip();
+		// Save the practice mode
+		SharedPreferences.Editor editor = sharedPref.edit();
+		String mode;
+		if (practiceMode == PracticeMode.LISTENING)
+			mode = "listening";
+		else
+			mode = "reading";
+		editor.putString("practiceMode", mode);
+		editor.commit();
 
-		cliplist = getFilesDir().list();
+		// Render the layout
+		if (practiceMode == PracticeMode.LISTENING)
+			setContentView(R.layout.listening_mode);
+		else if (practiceMode == PracticeMode.READING)
+			setContentView(R.layout.reading_mode);
 
-		readClipInfo();
-		setContentView(R.layout.activity_main);
-
-		sharedPref = getPreferences(Context.MODE_PRIVATE);
-		rnd = new Random();
-		clockHandler = new Handler();
-		start = System.currentTimeMillis();
-		elapsedMillis = 0L;
-		goalSeconds = sharedPref.getInt("goalSeconds", 0);
-		goalCompletionNotified = false;
-		clockRunning = false;
-		createUpdateTimeTask();
-
+		// Set event handlers
 		findViewById(R.id.playButton).setOnClickListener(this);
 		findViewById(R.id.repeatButton).setOnClickListener(this);
-		findViewById(R.id.hanziButton).setOnClickListener(this);
 		findViewById(R.id.timerTextView).setOnClickListener(this);
 		findViewById(R.id.hanziTextView).setOnLongClickListener(this);
+		if (practiceMode == PracticeMode.LISTENING)
+			findViewById(R.id.hanziButton).setOnClickListener(this);
 
 		findViewById(R.id.pauseButton).setOnClickListener(
 				new OnClickListener() {
@@ -276,6 +288,62 @@ public class MainActivity extends FragmentActivity implements
 					}
 				});
 
+		// Display the appropriate info
+		if (practiceMode == PracticeMode.LISTENING) {
+			if (key != null)
+				displayInstruction();
+		} else {
+			displayInstruction("reading mode");
+			if (key != null)
+				displayHanzi();
+		}
+
+	}
+
+	public void displayInstruction() {
+		displayInstruction(getInstruction(key));
+	}
+
+	public void displayInstruction(String instruction) {
+		TextView t = (TextView) findViewById(R.id.instructionTextView);
+		t.setText(instruction);
+	}
+
+	public void displayHanzi() {
+		displayHanzi(hanzi.get(key));
+	}
+
+	@Override
+	public void onCreate(Bundle savedInstanceState) {
+		super.onCreate(savedInstanceState);
+		Log.d(TAG, "testing only");
+		sharedPref = getPreferences(Context.MODE_PRIVATE);
+
+		// Decompress the zip file
+		Decompress d = new Decompress(zipFile, this);
+		d.unzip();
+
+		cliplist = getFilesDir().list();
+
+		readClipInfo();
+
+		// Set the practice mode
+		// Note: this logic has listening mode as default
+		String mode = sharedPref.getString("practiceMode", null);
+		if (mode == "reading")
+			setPracticeMode(PracticeMode.READING);
+		else
+			setPracticeMode(PracticeMode.LISTENING);
+
+		rnd = new Random();
+		clockHandler = new Handler();
+		start = System.currentTimeMillis();
+		elapsedMillis = 0L;
+		goalSeconds = sharedPref.getInt("goalSeconds", 0);
+		goalCompletionNotified = false;
+		clockRunning = false;
+		createUpdateTimeTask();
+
 		if (savedInstanceState != null) {
 			// Restore the clip history
 			clipHistory = savedInstanceState.getBundle("data")
@@ -285,6 +353,11 @@ public class MainActivity extends FragmentActivity implements
 			Log.d(TAG, "elapsedMillis restored to" + elapsedMillis);
 			key = savedInstanceState.getString("key");
 			sampleFilename = savedInstanceState.getString("sample");
+
+			// Restore the hanzi if it's reading mode
+			if (practiceMode == PracticeMode.READING)
+				displayHanzi();
+
 			if (sampleFilename.length() > 0) {
 				try {
 					sample = openFileInput(sampleFilename);
@@ -301,8 +374,7 @@ public class MainActivity extends FragmentActivity implements
 			String instruction = savedInstanceState.getString("instruction");
 			if (instruction.length() > 0) {
 				Log.d(TAG, "Restoring instruction value of " + instruction);
-				TextView t = (TextView) findViewById(R.id.instructionTextView);
-				t.setText(instruction);
+				displayInstruction(instruction);
 			}
 		}
 	}
@@ -315,6 +387,15 @@ public class MainActivity extends FragmentActivity implements
 
 	public boolean onPrepareOptionsMenu(Menu menu) {
 		menu.findItem(R.id.clearTimeGoal).setVisible(goalSeconds != 0);
+
+		// Set the string for the button that toggles practice mode
+		String modeSwitchString;
+		if (practiceMode == PracticeMode.LISTENING)
+			modeSwitchString = getString(R.string.setReadingMode);
+		else
+			modeSwitchString = getString(R.string.setListeningMode);
+		menu.findItem(R.id.toggleMode).setTitle(modeSwitchString);
+
 		return true;
 	}
 
@@ -331,10 +412,15 @@ public class MainActivity extends FragmentActivity implements
 			goalSeconds = 0;
 			goalCompletionNotified = false;
 			SharedPreferences.Editor editor = sharedPref.edit();
-			// We can call clear because there are no other preferences stored
-			// as of right now.
-			editor.clear();
+			editor.putInt("goalSeconds", 0);
 			editor.commit();
+			return true;
+		case R.id.toggleMode:
+			if (practiceMode == PracticeMode.LISTENING)
+				setPracticeMode(PracticeMode.READING);
+			else
+				setPracticeMode(PracticeMode.LISTENING);
+			return true;
 		default:
 			return super.onOptionsItemSelected(item);
 		}
@@ -389,9 +475,8 @@ public class MainActivity extends FragmentActivity implements
 		sample = null;
 		t = (TextView) findViewById(R.id.timerTextView);
 		t.setText("0:00");
-		setHanzi("");
-		t = (TextView) findViewById(R.id.instructionTextView);
-		t.setText("");
+		displayHanzi("");
+		displayInstruction("");
 	}
 
 	public boolean onLongClick(View v) {
@@ -436,8 +521,8 @@ public class MainActivity extends FragmentActivity implements
 			if (!clockRunning)
 				toggleClock();
 			if (sample != null)
-				setHanzi(hanzi.get(key)); // Should add default value: error
-											// message if no hanzi for key
+				displayHanzi(); // Should add default value: error
+			// message if no hanzi for key
 			break;
 
 		case R.id.timerTextView:

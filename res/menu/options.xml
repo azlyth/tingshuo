@@ -8,4 +8,8 @@
         android:id="@+id/clearTimeGoal"
         android:title="@string/clearTimeGoal"
         android:showAsAction="never"/>
+    <item
+        android:id="@+id/toggleMode"
+        android:title="@string/switchWhat"
+        android:showAsAction="never"/>
 </menu>

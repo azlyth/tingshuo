@@ -6,6 +6,8 @@
     <string name="hanziButtonLabel">字</string>
     <string name="repeatButtonLabel">重</string>
     <string name="pauseButtonLabel">休</string>
+    <string name="reading_next">下</string>
+    <string name="reading_say">说</string>
     <string name="startTime">0:00</string>
     <string name="yes">yes</string>
     <string name="no">no</string>
@@ -15,4 +17,7 @@
     <string name="reallyQuit">Quit?  This will reset timer and discard current clip.</string>
     <string name="setTimeGoal">Set time goal</string>
     <string name="clearTimeGoal">Clear time goal</string>
+    <string name="switchWhat">Switch to what?</string>
+    <string name="setReadingMode">Reading mode</string>
+    <string name="setListeningMode">Listening mode</string>
 </resources>
