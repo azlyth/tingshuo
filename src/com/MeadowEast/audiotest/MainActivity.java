@@ -7,7 +7,6 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
@@ -76,8 +75,9 @@ public class MainActivity extends FragmentActivity implements
 	private boolean[] activeClips;
 	static final String TAG = "CAT";
 	private float[] clipPreference;
+	private boolean errorShowing;
 
-	private void readClipInfo() {
+	private void readClipInfo() throws TingShuoException {
 		hanzi = new HashMap<String, String>();
 		instructions = new HashMap<String, String>();
 		clipHistory = new ArrayList<String>();
@@ -87,8 +87,7 @@ public class MainActivity extends FragmentActivity implements
 		try {
 			clipInfo = getAssets().open("clipinfo.txt");
 		} catch (IOException e1) {
-			// TODO: handle nicely (and exit probably)
-			e1.printStackTrace();
+			throw new TingShuoException("There was a problem opening the clip information file.");
 		}
 
 		try {
@@ -109,6 +108,7 @@ public class MainActivity extends FragmentActivity implements
 			in.close();
 		} catch (Exception e) {
 			Log.d(TAG, "Problem reading clipinfo");
+			throw new TingShuoException("There was a problem reading the clip information file.");
 		}
 	}
 
@@ -190,7 +190,7 @@ public class MainActivity extends FragmentActivity implements
 		t.setText(s);
 	}
 
-	private void setSample(String filename) {
+	private void setSample(String filename) throws TingShuoException {
 		// Show the thumb buttons
 		findViewById(R.id.thumbWrapper).setVisibility(View.VISIBLE);
 
@@ -200,8 +200,7 @@ public class MainActivity extends FragmentActivity implements
 			sample = openFileInput(sampleFilename);
 			// sample = getAssets().open(clipDir + "/" + sampleFilename);
 		} catch (IOException e1) {
-			// File with filename doesn't exist
-			e1.printStackTrace();
+			throw new TingShuoException("There was an error opening a clip.");
 		}
 		key = sampleFilename;
 
@@ -217,7 +216,7 @@ public class MainActivity extends FragmentActivity implements
 		}
 	}
 
-	private void playSample() {
+	private void playSample() throws TingShuoException {
 		// Clear the hanzi if in listening mode
 		if (practiceMode == PracticeMode.LISTENING)
 			displayHanzi("");
@@ -239,6 +238,7 @@ public class MainActivity extends FragmentActivity implements
 				mp.start();
 			} catch (Exception e) {
 				Log.d(TAG, "Couldn't get mp3 file");
+				throw new TingShuoException("There was an error playing the clip.");
 			}
 		}
 	}
@@ -255,8 +255,19 @@ public class MainActivity extends FragmentActivity implements
 		}
 
 		int index = clipHistory.size() - 1;
-		setSample(clipHistory.remove(index));
-		playSample();
+		try {
+			setSample(clipHistory.remove(index));
+		} catch (TingShuoException e) {
+			errorScreen(e.getMessage());
+			return;
+		}
+		
+		try {
+			playSample();
+		} catch (TingShuoException e) {
+			errorScreen(e.getMessage());
+			return;
+		}
 	}
 
 	public void setPracticeMode(PracticeMode pm) {
@@ -304,7 +315,7 @@ public class MainActivity extends FragmentActivity implements
 						playLastSample();
 					}
 				});
-		
+
 		// Show the thumb buttons if there is a current sample
 		if (key != null)
 			findViewById(R.id.thumbWrapper).setVisibility(View.VISIBLE);
@@ -338,15 +349,37 @@ public class MainActivity extends FragmentActivity implements
 			clipPreference[i] = (float) 1.0;
 	}
 
+	public void errorScreen(String error) {
+		errorShowing = true;
+		
+		// Stop the clock updating
+		if (clockHandler != null)
+			clockHandler.removeCallbacks(updateTimeTask);
+		
+		// Change the layout and set the error text
+		setContentView(R.layout.error);
+		TextView v = (TextView) findViewById(R.id.errorText);
+		v.setText(error);
+	}
+
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		Log.d(TAG, "testing only");
 		sharedPref = getPreferences(Context.MODE_PRIVATE);
 
-		// Decompress the zip file
-		Decompress d = new Decompress(zipFile, this);
-		d.unzip();
+		// Decompress the zip only if files have changed
+		int assetHash = getAssets().hashCode();
+		if (assetHash != sharedPref.getInt("assetHash", -1)) {
+			// Store the new hash
+			SharedPreferences.Editor editor = sharedPref.edit();
+			editor.putInt("assetHash", assetHash);
+			editor.commit();
+
+			// Decompress the zip file
+			Decompress d = new Decompress(zipFile, this);
+			d.unzip();
+		}
 
 		cliplist = getFilesDir().list();
 		enabledClipList = cliplist.clone();
@@ -357,7 +390,12 @@ public class MainActivity extends FragmentActivity implements
 		for (int i = 0; i < activeClips.length; i++) {
 			activeClips[i] = true;
 		}
-		readClipInfo();
+		try {
+			readClipInfo();
+		} catch (TingShuoException e1) {
+			errorScreen(e1.getMessage());
+			return;
+		}
 
 		// Set the practice mode
 		// Note: this logic has listening mode as default
@@ -377,6 +415,10 @@ public class MainActivity extends FragmentActivity implements
 		createUpdateTimeTask();
 
 		if (savedInstanceState != null) {
+			// Don't do anything if there was an error
+			if (savedInstanceState.getBoolean("errorShowing"))
+				return;
+			
 			// Restore the clip history
 			clipHistory = savedInstanceState.getBundle("data")
 					.getStringArrayList("clipHistory");
@@ -390,21 +432,28 @@ public class MainActivity extends FragmentActivity implements
 
 			enabledClipList = savedInstanceState
 					.getStringArray("enabledClipList");
-			
+
 			// Show the thumb buttons
 			findViewById(R.id.thumbWrapper).setVisibility(View.VISIBLE);
 
+			// Retrieve the practice mode (0 -> not stored, 1 -> listening, 2 ->
+			// reading)
+			int practiceModeFlag = savedInstanceState
+					.getInt("practiceModeFlag");
+			if (practiceModeFlag == 1)
+				practiceMode = PracticeMode.LISTENING;
+			else if (practiceModeFlag == 2)
+				practiceMode = PracticeMode.READING;
 
-			// Restore the hanzi if it's reading mode
-			if (practiceMode == PracticeMode.READING)
-				displayHanzi();
+			// Set the practice mode
+			setPracticeMode(practiceMode);
 
 			if (sampleFilename.length() > 0) {
 				try {
 					sample = openFileInput(sampleFilename);
 				} catch (IOException e) {
-					// Filename doesn't match a file.
-					e.printStackTrace();
+					errorScreen("The filename from your saved session cannot be found.");
+					return;
 				}
 			}
 			if (savedInstanceState.getBoolean("running"))
@@ -594,6 +643,13 @@ public class MainActivity extends FragmentActivity implements
 
 	public void onSaveInstanceState(Bundle outState) {
 		super.onSaveInstanceState(outState);
+
+		outState.putBoolean("errorShowing", errorShowing);
+		// Don't do anything if an error is showing
+		if (errorShowing) {
+			return;
+		}
+			
 		String sampleName = "";
 		if (sample != null)
 			sampleName = sampleFilename;
@@ -608,6 +664,14 @@ public class MainActivity extends FragmentActivity implements
 		outState.putBoolean("goalCompletionNotified", goalCompletionNotified);
 		outState.putInt("goalSeconds", goalSeconds);
 		outState.putStringArray("enabledClipList", enabledClipList);
+
+		// Store the practice mode using an integer flag
+		int practiceModeFlag = 0;
+		if (practiceMode == PracticeMode.LISTENING)
+			practiceModeFlag = 1;
+		else if (practiceMode == PracticeMode.READING)
+			practiceModeFlag = 2;
+		outState.putInt("practiceModeFlag", practiceModeFlag);
 
 		// Save the clip history
 		Bundle bundle = new Bundle();
@@ -702,8 +766,8 @@ public class MainActivity extends FragmentActivity implements
 
 		// Double the preference
 		clipPreference[index] = preference * 2;
-		thumbsToast = Toast.makeText(this, "This clip will be selected more often.",
-				Toast.LENGTH_SHORT);
+		thumbsToast = Toast.makeText(this,
+				"This clip will be selected more often.", Toast.LENGTH_SHORT);
 		thumbsToast.show();
 	}
 
@@ -731,10 +795,20 @@ public class MainActivity extends FragmentActivity implements
 			if (sampleFilename != null) {
 				clipHistory.add(sampleFilename);
 			}
-			setSample(nextRandomClip());
+			try {
+				setSample(nextRandomClip());
+			} catch (TingShuoException e) {
+				errorScreen(e.getMessage());
+				return;
+			}
 
 		case R.id.repeatButton:
-			playSample();
+			try {
+				playSample();
+			} catch (TingShuoException e) {
+				errorScreen(e.getMessage());
+				return;
+			}
 			break;
 
 		case R.id.hanziButton:
@@ -771,17 +845,21 @@ public class MainActivity extends FragmentActivity implements
 	public boolean onKeyDown(int keyCode, KeyEvent event) {
 		if (keyCode == KeyEvent.KEYCODE_BACK) {
 			Log.d(TAG, "llkj");
-			new AlertDialog.Builder(this)
-					.setIcon(android.R.drawable.ic_dialog_alert)
-					.setTitle(R.string.quit)
-					.setMessage(R.string.reallyQuit)
-					.setPositiveButton(R.string.yes,
-							new DialogInterface.OnClickListener() {
-								public void onClick(DialogInterface dialog,
-										int which) {
-									MainActivity.this.finish();
-								}
-							}).setNegativeButton(R.string.no, null).show();
+			if (errorShowing) {
+				finish();
+			} else {
+				new AlertDialog.Builder(this)
+						.setIcon(android.R.drawable.ic_dialog_alert)
+						.setTitle(R.string.quit)
+						.setMessage(R.string.reallyQuit)
+						.setPositiveButton(R.string.yes,
+								new DialogInterface.OnClickListener() {
+									public void onClick(DialogInterface dialog,
+											int which) {
+										MainActivity.this.finish();
+									}
+								}).setNegativeButton(R.string.no, null).show();
+			}
 			return true;
 		} else {
 			return super.onKeyDown(keyCode, event);
