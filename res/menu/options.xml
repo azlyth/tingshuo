@@ -9,6 +9,10 @@
         android:title="@string/selectClips"
         android:showAsAction="never"/>
     <item
+        android:id="@+id/clearPreferences"
+        android:title="@string/clearPreferences"
+        android:showAsAction="never"/>
+    <item
         android:id="@+id/setTimeGoal"
         android:title="@string/setTimeGoal"
         android:showAsAction="never"/>

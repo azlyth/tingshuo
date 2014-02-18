@@ -7,13 +7,12 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
 
 import android.app.AlertDialog;
-import android.app.AlertDialog.Builder;
-import android.app.Dialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -27,7 +26,6 @@ import android.support.v4.app.FragmentActivity;
 import android.util.Log;
 import android.util.SparseBooleanArray;
 import android.view.KeyEvent;
-import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
@@ -38,7 +36,6 @@ import android.view.View.OnLongClickListener;
 import android.view.View.OnTouchListener;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
-import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -73,10 +70,12 @@ public class MainActivity extends FragmentActivity implements
 	private Map<String, String> instructions;
 	private String key;
 	private Toast no_previous_toast;
+	private Toast thumbsToast;
 	private boolean goalCompletionNotified;
 	private SharedPreferences sharedPref;
 	private boolean[] activeClips;
 	static final String TAG = "CAT";
+	private float[] clipPreference;
 
 	private void readClipInfo() {
 		hanzi = new HashMap<String, String>();
@@ -192,6 +191,10 @@ public class MainActivity extends FragmentActivity implements
 	}
 
 	private void setSample(String filename) {
+		// Show the thumb buttons
+		findViewById(R.id.thumbWrapper).setVisibility(View.VISIBLE);
+
+		// Open the sample
 		sampleFilename = filename;
 		try {
 			sample = openFileInput(sampleFilename);
@@ -275,10 +278,15 @@ public class MainActivity extends FragmentActivity implements
 		else if (practiceMode == PracticeMode.READING)
 			setContentView(R.layout.reading_mode);
 
+		// Hide the thumb buttons by default
+		findViewById(R.id.thumbWrapper).setVisibility(View.INVISIBLE);
+
 		// Set event handlers
 		findViewById(R.id.playButton).setOnClickListener(this);
 		findViewById(R.id.repeatButton).setOnClickListener(this);
 		findViewById(R.id.timerTextView).setOnClickListener(this);
+		findViewById(R.id.thumbsDown).setOnClickListener(this);
+		findViewById(R.id.thumbsUp).setOnClickListener(this);
 		findViewById(R.id.hanziTextView).setOnLongClickListener(this);
 		if (practiceMode == PracticeMode.LISTENING)
 			findViewById(R.id.hanziButton).setOnClickListener(this);
@@ -296,6 +304,10 @@ public class MainActivity extends FragmentActivity implements
 						playLastSample();
 					}
 				});
+		
+		// Show the thumb buttons if there is a current sample
+		if (key != null)
+			findViewById(R.id.thumbWrapper).setVisibility(View.VISIBLE);
 
 		// Display the appropriate info
 		if (practiceMode == PracticeMode.LISTENING) {
@@ -306,7 +318,6 @@ public class MainActivity extends FragmentActivity implements
 			if (key != null)
 				displayHanzi();
 		}
-
 	}
 
 	public void displayInstruction() {
@@ -322,6 +333,11 @@ public class MainActivity extends FragmentActivity implements
 		displayHanzi(hanzi.get(key));
 	}
 
+	public void resetClipPreference() {
+		for (int i = 0; i < clipPreference.length; i++)
+			clipPreference[i] = (float) 1.0;
+	}
+
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
@@ -334,11 +350,13 @@ public class MainActivity extends FragmentActivity implements
 
 		cliplist = getFilesDir().list();
 		enabledClipList = cliplist.clone();
+		clipPreference = new float[cliplist.length];
+		resetClipPreference();
 		activeClips = new boolean[cliplist.length];
 		// Initialize activeClips to true
-		for (int i = 0; i < activeClips.length; i++)
+		for (int i = 0; i < activeClips.length; i++) {
 			activeClips[i] = true;
-
+		}
 		readClipInfo();
 
 		// Set the practice mode
@@ -362,7 +380,7 @@ public class MainActivity extends FragmentActivity implements
 			// Restore the clip history
 			clipHistory = savedInstanceState.getBundle("data")
 					.getStringArrayList("clipHistory");
-			
+
 			elapsedMillis = savedInstanceState.getLong("elapsedMillis");
 			Log.d(TAG, "elapsedMillis restored to" + elapsedMillis);
 			key = savedInstanceState.getString("key");
@@ -370,8 +388,13 @@ public class MainActivity extends FragmentActivity implements
 			goalCompletionNotified = savedInstanceState
 					.getBoolean("goalCompletionNotified");
 
-			enabledClipList = savedInstanceState.getStringArray("enabledClipList");
+			enabledClipList = savedInstanceState
+					.getStringArray("enabledClipList");
 			
+			// Show the thumb buttons
+			findViewById(R.id.thumbWrapper).setVisibility(View.VISIBLE);
+
+
 			// Restore the hanzi if it's reading mode
 			if (practiceMode == PracticeMode.READING)
 				displayHanzi();
@@ -404,7 +427,17 @@ public class MainActivity extends FragmentActivity implements
 	}
 
 	public boolean onPrepareOptionsMenu(Menu menu) {
+		// Only show "clear time goal" if there's a time goal
 		menu.findItem(R.id.clearTimeGoal).setVisible(goalSeconds != 0);
+
+		// Only show clear preferences if they're not all one
+		menu.findItem(R.id.clearPreferences).setVisible(false);
+		for (int i = 0; i < clipPreference.length; i++) {
+			if (clipPreference[i] != 1.0) {
+				menu.findItem(R.id.clearPreferences).setVisible(true);
+				break;
+			}
+		}
 
 		// Set the string for the button that toggles practice mode
 		String modeSwitchString;
@@ -438,6 +471,9 @@ public class MainActivity extends FragmentActivity implements
 				setPracticeMode(PracticeMode.READING);
 			else
 				setPracticeMode(PracticeMode.LISTENING);
+			return true;
+		case R.id.clearPreferences:
+			resetClipPreference();
 			return true;
 		case R.id.selectClips:
 			// Create a dialog (Android's pop-up)
@@ -474,11 +510,11 @@ public class MainActivity extends FragmentActivity implements
 			ArrayAdapter<String> adp = new ArrayAdapter<String>(this,
 					android.R.layout.simple_list_item_multiple_choice, cliplist);
 			listView.setAdapter(adp);
-			
+
 			// Select the enabled clips in the list view
 			for (int i = 0; i < adp.getCount(); i++)
 				listView.setItemChecked(i, activeClips[i]);
-			
+
 			// Display the dialog
 			dialog.show();
 
@@ -504,7 +540,7 @@ public class MainActivity extends FragmentActivity implements
 									if (activeClips[i])
 										totalActive++;
 								}
-								
+
 								// Create the new list of available filenames
 								int current = 0;
 								enabledClipList = new String[totalActive];
@@ -513,8 +549,8 @@ public class MainActivity extends FragmentActivity implements
 										enabledClipList[current] = cliplist[i];
 										current++;
 									}
-								}								
-								
+								}
+
 								// Close the dialog
 								dialog.dismiss();
 							}
@@ -620,6 +656,73 @@ public class MainActivity extends FragmentActivity implements
 		return true;
 	}
 
+	public String nextRandomClip() {
+		int index;
+		float sum = 0;
+
+		// Add up all the probabilities
+		for (int i = 0; i < enabledClipList.length; i++) {
+			index = Arrays.asList(cliplist).indexOf(enabledClipList[i]);
+			sum += clipPreference[index];
+		}
+
+		// Find a value from 0 to the sum of the probabilities
+		double threshold = sum * rnd.nextDouble();
+
+		// Find the string who's probability pushes the sum above the threshold
+		sum = 0;
+		for (int i = 0; i < enabledClipList.length; i++) {
+			index = Arrays.asList(cliplist).indexOf(enabledClipList[i]);
+			sum += clipPreference[index];
+
+			if (sum > threshold)
+				return enabledClipList[i];
+		}
+
+		// There is no next clip. This should not happen.
+		return null;
+	}
+
+	public void raiseClipPreference() {
+		int index = Arrays.asList(cliplist).indexOf(sampleFilename);
+		float preference = clipPreference[index];
+
+		// Cancel any existing toast
+		if (thumbsToast != null)
+			thumbsToast.cancel();
+
+		// Don't raise the clip preference higher than 8
+		if (preference == 8) {
+			thumbsToast = Toast.makeText(this,
+					"This clip's preference cannot be set higher.",
+					Toast.LENGTH_SHORT);
+			thumbsToast.show();
+			return;
+		}
+
+		// Double the preference
+		clipPreference[index] = preference * 2;
+		thumbsToast = Toast.makeText(this, "This clip will be selected more often.",
+				Toast.LENGTH_SHORT);
+		thumbsToast.show();
+	}
+
+	public void lowerClipPreference() {
+		int index = Arrays.asList(cliplist).indexOf(sampleFilename);
+
+		// Halve the preference
+		clipPreference[index] /= 2;
+
+		// Cancel any existing toast
+		if (thumbsToast != null)
+			thumbsToast.cancel();
+
+		thumbsToast = Toast
+				.makeText(this, "This clip will be selected half as often.",
+						Toast.LENGTH_SHORT);
+		thumbsToast.show();
+	}
+
 	public void onClick(View v) {
 		switch (v.getId()) {
 
@@ -628,8 +731,7 @@ public class MainActivity extends FragmentActivity implements
 			if (sampleFilename != null) {
 				clipHistory.add(sampleFilename);
 			}
-			Integer index = rnd.nextInt(enabledClipList.length);
-			setSample(enabledClipList[index]);
+			setSample(nextRandomClip());
 
 		case R.id.repeatButton:
 			playSample();
@@ -655,6 +757,12 @@ public class MainActivity extends FragmentActivity implements
 									MainActivity.this.reset();
 								}
 							}).setNegativeButton(R.string.no, null).show();
+			break;
+		case R.id.thumbsDown:
+			lowerClipPreference();
+			break;
+		case R.id.thumbsUp:
+			raiseClipPreference();
 			break;
 		}
 	}

@@ -6,15 +6,44 @@
     android:orientation="vertical"
     android:padding="10dp" >
 
-    <TextView
-        android:id="@+id/timerTextView"
-        android:layout_width="wrap_content"
+    <RelativeLayout
+        android:id="@+id/relativeLayout1"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="right"
-        android:layout_marginRight="5sp"
-        android:text="@string/startTime"
-        android:textAppearance="?android:attr/textAppearanceSmall"
-        android:textSize="30sp" />
+        android:orientation="horizontal" >
+
+        <LinearLayout
+            android:id="@+id/thumbWrapper"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerHorizontal="true" >
+
+            <ImageView
+                android:id="@+id/thumbsDown"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginRight="30sp"
+                android:background="@android:color/transparent"
+                android:contentDescription="@string/thumbsDownDesc"
+                android:src="@drawable/thumbsdown" />
+
+            <ImageView
+                android:id="@+id/thumbsUp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:contentDescription="@string/thumbsUpDesc"
+                android:src="@drawable/thumbsup" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/timerTextView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentRight="true"
+            android:layout_marginRight="5sp"
+            android:text="@string/startTime"
+            android:textSize="30sp" />
+    </RelativeLayout>
 
     <TextView
         android:id="@+id/hanziTextView"

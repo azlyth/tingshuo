@@ -24,4 +24,7 @@
     <string name="selectAll">Select all</string>
     <string name="deselectAll">Deselect all</string>
     <string name="selectionComplete">OK</string>
+    <string name="thumbsUpDesc">Thumbs up</string>
+    <string name="thumbsDownDesc">Thumbs down</string>
+    <string name="clearPreferences">Clear preferences</string>
 </resources>
