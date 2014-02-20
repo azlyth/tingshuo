@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android" >
+    <item
+        android:id="@+id/toggleMode"
+        android:title="@string/switchWhat"
+        android:showAsAction="never"/>
+    <item
+        android:id="@+id/selectClips"
+        android:title="@string/selectClips"
+        android:showAsAction="never"/>
+    <item
+        android:id="@+id/clearPreferences"
+        android:title="@string/clearPreferences"
+        android:showAsAction="never"/>
+    <item
+        android:id="@+id/setTimeGoal"
+        android:title="@string/setTimeGoal"
+        android:showAsAction="never"/>
+    <item
+        android:id="@+id/clearTimeGoal"
+        android:title="@string/clearTimeGoal"
+        android:showAsAction="never"/>
+</menu>
