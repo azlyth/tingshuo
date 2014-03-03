@@ -1,7 +1,9 @@
 package com.MeadowEast.audiotest;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -45,16 +47,27 @@ public class MainActivity extends FragmentActivity implements
 		HmsPickerDialogFragment.HmsPickerDialogHandler, OnClickListener,
 		OnLongClickListener, OnTouchListener {
 
-	public enum PracticeMode {
+	// A class that handles the saving and setting of states
+	public class TingShuoState {
+		private float[] clipPreference;
+		private Long elapsedMillis;
+		private int goalSeconds;
+		private boolean goalCompletionNotified;
+	}
+
+	private enum PracticeMode {
 		LISTENING, READING
 	};
 
+	private TingShuoState currentState;
+	private HashMap<PracticeMode, TingShuoState> states;
 	private PracticeMode practiceMode;
 	private MediaPlayer mp;
+	private Decompress d;
 	private String[] cliplist;
 	private String[] enabledClipList;
 	private ArrayList<String> clipHistory;
-	private FileInputStream sample;
+	private InputStream sample;
 	private String sampleFilename;
 	private String zipFile = "tingshuo-clips.zip";
 	private Random rnd;
@@ -62,19 +75,15 @@ public class MainActivity extends FragmentActivity implements
 	private Runnable updateTimeTask;
 	private boolean clockRunning;
 	private boolean clockWasRunning;
-	private Long elapsedMillis;
 	private Long start;
-	private int goalSeconds;
 	private Map<String, String> hanzi;
 	private Map<String, String> instructions;
 	private String key;
 	private Toast no_previous_toast;
 	private Toast thumbsToast;
-	private boolean goalCompletionNotified;
 	private SharedPreferences sharedPref;
 	private boolean[] activeClips;
 	static final String TAG = "CAT";
-	private float[] clipPreference;
 	private boolean errorShowing;
 
 	private void readClipInfo() throws TingShuoException {
@@ -87,7 +96,8 @@ public class MainActivity extends FragmentActivity implements
 		try {
 			clipInfo = getAssets().open("clipinfo.txt");
 		} catch (IOException e1) {
-			throw new TingShuoException("There was a problem opening the clip information file.");
+			throw new TingShuoException(
+					"There was a problem opening the clip information file.");
 		}
 
 		try {
@@ -108,7 +118,8 @@ public class MainActivity extends FragmentActivity implements
 			in.close();
 		} catch (Exception e) {
 			Log.d(TAG, "Problem reading clipinfo");
-			throw new TingShuoException("There was a problem reading the clip information file.");
+			throw new TingShuoException(
+					"There was a problem reading the clip information file.");
 		}
 	}
 
@@ -140,7 +151,7 @@ public class MainActivity extends FragmentActivity implements
 
 	private void toggleClock() {
 		if (clockRunning)
-			elapsedMillis += System.currentTimeMillis() - start;
+			currentState.elapsedMillis += System.currentTimeMillis() - start;
 		else
 			start = System.currentTimeMillis();
 
@@ -153,15 +164,20 @@ public class MainActivity extends FragmentActivity implements
 	private void showTime(Long totalMillis) {
 		int seconds = (int) (totalMillis / 1000);
 
-		// Beep if we've the timer has gone above the goal time
-		if (goalSeconds != 0 && seconds >= goalSeconds) {
-			if (!goalCompletionNotified) {
+		// Beep and toast if we've the timer has gone above the goal time
+		if (currentState.goalSeconds != 0
+				&& seconds >= currentState.goalSeconds) {
+			if (!currentState.goalCompletionNotified) {
 				// Make a beep
 				ToneGenerator toneG = new ToneGenerator(
 						AudioManager.STREAM_ALARM, 90);
 				toneG.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 250);
-				goalCompletionNotified = true;
 
+				// Toast
+				Toast.makeText(MainActivity.this, "Time goal achieved.",
+						Toast.LENGTH_SHORT).show();
+
+				currentState.goalCompletionNotified = true;
 			}
 		}
 
@@ -177,8 +193,8 @@ public class MainActivity extends FragmentActivity implements
 	private void createUpdateTimeTask() {
 		updateTimeTask = new Runnable() {
 			public void run() {
-				Long totalMillis = elapsedMillis + System.currentTimeMillis()
-						- start;
+				Long totalMillis = currentState.elapsedMillis
+						+ System.currentTimeMillis() - start;
 				showTime(totalMillis);
 				clockHandler.postDelayed(this, 1000);
 			}
@@ -196,12 +212,8 @@ public class MainActivity extends FragmentActivity implements
 
 		// Open the sample
 		sampleFilename = filename;
-		try {
-			sample = openFileInput(sampleFilename);
-			// sample = getAssets().open(clipDir + "/" + sampleFilename);
-		} catch (IOException e1) {
-			throw new TingShuoException("There was an error opening a clip.");
-		}
+		sample = d.getSample(sampleFilename);
+		
 		key = sampleFilename;
 
 		// Remove ".mp3" from the end of the filename
@@ -216,8 +228,15 @@ public class MainActivity extends FragmentActivity implements
 		}
 	}
 
+	private void stopSample() {
+		if (mp != null) {
+			mp.stop();
+			mp.release();
+			mp = null;
+		}
+	}
+	
 	private void playSample() throws TingShuoException {
-		// Clear the hanzi if in listening mode
 		if (practiceMode == PracticeMode.LISTENING)
 			displayHanzi("");
 
@@ -226,24 +245,33 @@ public class MainActivity extends FragmentActivity implements
 			toggleClock();
 
 		if (sample != null) {
-			if (mp != null) {
-				mp.stop();
-				mp.release();
-			}
+			stopSample();
+
 			mp = new MediaPlayer();
 			mp.setAudioStreamType(AudioManager.STREAM_MUSIC);
 			try {
-				mp.setDataSource(sample.getFD());
+				File f = File.createTempFile("tingshuo-clip", ".mp3");				
+				FileOutputStream out = new FileOutputStream(f);
+				
+				byte[] buffer = new byte[51200];
+				int len;
+				while ((len = sample.read(buffer)) != -1) {
+				    out.write(buffer, 0, len);
+				}
+				out.close();
+				
+				mp.setDataSource(f.getPath());				
 				mp.prepare();
 				mp.start();
 			} catch (Exception e) {
 				Log.d(TAG, "Couldn't get mp3 file");
-				throw new TingShuoException("There was an error playing the clip.");
+				throw new TingShuoException(
+						"There was an error playing the clip.");
 			}
 		}
 	}
 
-	private void playLastSample() {
+	private void setLastSample() {
 		if (clipHistory.size() == 0) {
 			if (no_previous_toast != null) {
 				no_previous_toast.cancel();
@@ -261,9 +289,10 @@ public class MainActivity extends FragmentActivity implements
 			errorScreen(e.getMessage());
 			return;
 		}
-		
+
 		try {
-			playSample();
+			if (practiceMode == PracticeMode.LISTENING)
+				playSample();
 		} catch (TingShuoException e) {
 			errorScreen(e.getMessage());
 			return;
@@ -272,6 +301,9 @@ public class MainActivity extends FragmentActivity implements
 
 	public void setPracticeMode(PracticeMode pm) {
 		practiceMode = pm;
+		
+		// Run the pause method to stop the clock
+		onPause();
 
 		// Save the practice mode
 		SharedPreferences.Editor editor = sharedPref.edit();
@@ -283,11 +315,20 @@ public class MainActivity extends FragmentActivity implements
 		editor.putString("practiceMode", mode);
 		editor.commit();
 
+		// Stop playing the sample if one currently is
+		stopSample();
+
+		// Set the current state
+		currentState = states.get(pm);
+
 		// Render the layout
 		if (practiceMode == PracticeMode.LISTENING)
 			setContentView(R.layout.listening_mode);
 		else if (practiceMode == PracticeMode.READING)
 			setContentView(R.layout.reading_mode);
+		
+		// Set the correct time
+		showTime(currentState.elapsedMillis);
 
 		// Hide the thumb buttons by default
 		findViewById(R.id.thumbWrapper).setVisibility(View.INVISIBLE);
@@ -312,7 +353,7 @@ public class MainActivity extends FragmentActivity implements
 		findViewById(R.id.hanziTextView).setOnTouchListener(
 				new OnSwipeTouchListener(this) {
 					public void onSwipeRight() {
-						playLastSample();
+						setLastSample();
 					}
 				});
 
@@ -325,7 +366,7 @@ public class MainActivity extends FragmentActivity implements
 			if (key != null)
 				displayInstruction();
 		} else {
-			displayInstruction("reading mode");
+			displayInstruction("");
 			if (key != null)
 				displayHanzi();
 		}
@@ -345,17 +386,21 @@ public class MainActivity extends FragmentActivity implements
 	}
 
 	public void resetClipPreference() {
-		for (int i = 0; i < clipPreference.length; i++)
-			clipPreference[i] = (float) 1.0;
+		resetClipPreference(currentState.clipPreference);
+	}
+
+	public void resetClipPreference(float[] array) {
+		for (int i = 0; i < array.length; i++)
+			array[i] = (float) 1.0;
 	}
 
 	public void errorScreen(String error) {
 		errorShowing = true;
-		
+
 		// Stop the clock updating
 		if (clockHandler != null)
 			clockHandler.removeCallbacks(updateTimeTask);
-		
+
 		// Change the layout and set the error text
 		setContentView(R.layout.error);
 		TextView v = (TextView) findViewById(R.id.errorText);
@@ -368,28 +413,38 @@ public class MainActivity extends FragmentActivity implements
 		Log.d(TAG, "testing only");
 		sharedPref = getPreferences(Context.MODE_PRIVATE);
 
-		// Decompress the zip only if files have changed
-		int assetHash = getAssets().hashCode();
-		if (assetHash != sharedPref.getInt("assetHash", -1)) {
-			// Store the new hash
-			SharedPreferences.Editor editor = sharedPref.edit();
-			editor.putInt("assetHash", assetHash);
-			editor.commit();
+		// Setup the decompressor
+		d = new Decompress(zipFile, this);
+		
+		// Get the list of sample files
+		cliplist = d.getList();
+		enabledClipList = cliplist.clone();
 
-			// Decompress the zip file
-			Decompress d = new Decompress(zipFile, this);
-			d.unzip();
+		// Initialize states
+		states = new HashMap<PracticeMode, TingShuoState>();
+		for (PracticeMode pm : PracticeMode.values()) {
+			TingShuoState state = new TingShuoState();
+
+			// Initialize the preferences
+			state.clipPreference = new float[cliplist.length];
+			resetClipPreference(state.clipPreference);
+
+			state.goalSeconds = sharedPref.getInt(pm.toString()
+					+ "_goalSeconds", 0);
+			state.goalCompletionNotified = false;
+
+			state.elapsedMillis = 0L;
+
+			// Save the state in the hashmap
+			states.put(pm, state);
 		}
 
-		cliplist = getFilesDir().list();
-		enabledClipList = cliplist.clone();
-		clipPreference = new float[cliplist.length];
-		resetClipPreference();
-		activeClips = new boolean[cliplist.length];
 		// Initialize activeClips to true
+		activeClips = new boolean[cliplist.length];
 		for (int i = 0; i < activeClips.length; i++) {
 			activeClips[i] = true;
 		}
+
 		try {
 			readClipInfo();
 		} catch (TingShuoException e1) {
@@ -408,9 +463,6 @@ public class MainActivity extends FragmentActivity implements
 		rnd = new Random();
 		clockHandler = new Handler();
 		start = System.currentTimeMillis();
-		elapsedMillis = 0L;
-		goalSeconds = sharedPref.getInt("goalSeconds", 0);
-		goalCompletionNotified = false;
 		clockRunning = false;
 		createUpdateTimeTask();
 
@@ -418,17 +470,25 @@ public class MainActivity extends FragmentActivity implements
 			// Don't do anything if there was an error
 			if (savedInstanceState.getBoolean("errorShowing"))
 				return;
-			
+
 			// Restore the clip history
 			clipHistory = savedInstanceState.getBundle("data")
 					.getStringArrayList("clipHistory");
 
-			elapsedMillis = savedInstanceState.getLong("elapsedMillis");
-			Log.d(TAG, "elapsedMillis restored to" + elapsedMillis);
+			Log.d(TAG, "elapsedMillis restored to" + currentState.elapsedMillis);
 			key = savedInstanceState.getString("key");
 			sampleFilename = savedInstanceState.getString("sample");
-			goalCompletionNotified = savedInstanceState
-					.getBoolean("goalCompletionNotified");
+
+			// Retrieve each state (goalSeconds is retrieved elsewhere)
+			for (PracticeMode pm : PracticeMode.values()) {
+				TingShuoState state = states.get(pm);
+				state.goalCompletionNotified = savedInstanceState.getBoolean(pm
+						.toString() + "_goalCompletionNotified");
+				state.clipPreference = savedInstanceState.getFloatArray(pm
+						.toString() + "_clipPreference");
+				state.elapsedMillis = savedInstanceState.getLong(pm.toString()
+						+ "_elapsedMillis");
+			}
 
 			enabledClipList = savedInstanceState
 					.getStringArray("enabledClipList");
@@ -459,7 +519,7 @@ public class MainActivity extends FragmentActivity implements
 			if (savedInstanceState.getBoolean("running"))
 				toggleClock();
 			else
-				showTime(elapsedMillis);
+				showTime(currentState.elapsedMillis);
 			Log.d(TAG, "About to restore instruction");
 			String instruction = savedInstanceState.getString("instruction");
 			if (instruction.length() > 0) {
@@ -477,12 +537,13 @@ public class MainActivity extends FragmentActivity implements
 
 	public boolean onPrepareOptionsMenu(Menu menu) {
 		// Only show "clear time goal" if there's a time goal
-		menu.findItem(R.id.clearTimeGoal).setVisible(goalSeconds != 0);
+		menu.findItem(R.id.clearTimeGoal).setVisible(
+				currentState.goalSeconds != 0);
 
 		// Only show clear preferences if they're not all one
 		menu.findItem(R.id.clearPreferences).setVisible(false);
-		for (int i = 0; i < clipPreference.length; i++) {
-			if (clipPreference[i] != 1.0) {
+		for (int i = 0; i < currentState.clipPreference.length; i++) {
+			if (currentState.clipPreference[i] != 1.0) {
 				menu.findItem(R.id.clearPreferences).setVisible(true);
 				break;
 			}
@@ -509,8 +570,8 @@ public class MainActivity extends FragmentActivity implements
 			hpb.show();
 			return true;
 		case R.id.clearTimeGoal:
-			goalSeconds = 0;
-			goalCompletionNotified = false;
+			currentState.goalSeconds = 0;
+			currentState.goalCompletionNotified = false;
 			SharedPreferences.Editor editor = sharedPref.edit();
 			editor.putInt("goalSeconds", 0);
 			editor.commit();
@@ -649,21 +710,29 @@ public class MainActivity extends FragmentActivity implements
 		if (errorShowing) {
 			return;
 		}
-			
+
 		String sampleName = "";
 		if (sample != null)
 			sampleName = sampleFilename;
 		outState.putString("sample", sampleName);
 		// onPause has stopped the clock if it was running, so we just save
 		// elapsedMillis
-		outState.putLong("elapsedMillis", elapsedMillis);
 		TextView t = (TextView) findViewById(R.id.instructionTextView);
 		outState.putString("instruction", t.getText().toString());
 		outState.putString("key", key);
 		outState.putBoolean("running", clockWasRunning);
-		outState.putBoolean("goalCompletionNotified", goalCompletionNotified);
-		outState.putInt("goalSeconds", goalSeconds);
 		outState.putStringArray("enabledClipList", enabledClipList);
+
+		// Save each state (but not goalSeconds, that's saved elsewhere)
+		for (PracticeMode pm : PracticeMode.values()) {
+			TingShuoState state = states.get(pm);
+			outState.putBoolean(pm.toString() + "_goalCompletionNotified",
+					state.goalCompletionNotified);
+			outState.putFloatArray(pm.toString() + "_clipPreference",
+					state.clipPreference);
+			outState.putLong(pm.toString() + "_elapsedMillis",
+					state.elapsedMillis);
+		}
 
 		// Store the practice mode using an integer flag
 		int practiceModeFlag = 0;
@@ -687,8 +756,8 @@ public class MainActivity extends FragmentActivity implements
 
 		// Reset time data
 		start = 0L;
-		elapsedMillis = 0L;
-		goalCompletionNotified = false;
+		currentState.elapsedMillis = 0L;
+		currentState.goalCompletionNotified = false;
 
 		sample = null;
 		t = (TextView) findViewById(R.id.timerTextView);
@@ -727,7 +796,7 @@ public class MainActivity extends FragmentActivity implements
 		// Add up all the probabilities
 		for (int i = 0; i < enabledClipList.length; i++) {
 			index = Arrays.asList(cliplist).indexOf(enabledClipList[i]);
-			sum += clipPreference[index];
+			sum += currentState.clipPreference[index];
 		}
 
 		// Find a value from 0 to the sum of the probabilities
@@ -737,7 +806,7 @@ public class MainActivity extends FragmentActivity implements
 		sum = 0;
 		for (int i = 0; i < enabledClipList.length; i++) {
 			index = Arrays.asList(cliplist).indexOf(enabledClipList[i]);
-			sum += clipPreference[index];
+			sum += currentState.clipPreference[index];
 
 			if (sum > threshold)
 				return enabledClipList[i];
@@ -749,7 +818,7 @@ public class MainActivity extends FragmentActivity implements
 
 	public void raiseClipPreference() {
 		int index = Arrays.asList(cliplist).indexOf(sampleFilename);
-		float preference = clipPreference[index];
+		float preference = currentState.clipPreference[index];
 
 		// Cancel any existing toast
 		if (thumbsToast != null)
@@ -765,7 +834,7 @@ public class MainActivity extends FragmentActivity implements
 		}
 
 		// Double the preference
-		clipPreference[index] = preference * 2;
+		currentState.clipPreference[index] = preference * 2;
 		thumbsToast = Toast.makeText(this,
 				"This clip will be selected more often.", Toast.LENGTH_SHORT);
 		thumbsToast.show();
@@ -775,7 +844,7 @@ public class MainActivity extends FragmentActivity implements
 		int index = Arrays.asList(cliplist).indexOf(sampleFilename);
 
 		// Halve the preference
-		clipPreference[index] /= 2;
+		currentState.clipPreference[index] /= 2;
 
 		// Cancel any existing toast
 		if (thumbsToast != null)
@@ -800,6 +869,17 @@ public class MainActivity extends FragmentActivity implements
 			} catch (TingShuoException e) {
 				errorScreen(e.getMessage());
 				return;
+			}
+
+			// Stop the current clip if there is one
+			stopSample();
+
+			// Don't play the sample in reading mode
+			if (practiceMode == PracticeMode.READING) {
+				// Start the clock if off
+				if (!clockRunning)
+					toggleClock();
+				break;
 			}
 
 		case R.id.repeatButton:
@@ -872,13 +952,14 @@ public class MainActivity extends FragmentActivity implements
 
 	public void onDialogHmsSet(int reference, int hours, int minutes,
 			int seconds) {
-		goalSeconds = seconds;
-		goalSeconds += minutes * 60;
-		goalSeconds += hours * 60 * 60;
+		currentState.goalSeconds = seconds;
+		currentState.goalSeconds += minutes * 60;
+		currentState.goalSeconds += hours * 60 * 60;
 
 		// Save this value to shared preferences so we can keep it saved
 		SharedPreferences.Editor editor = sharedPref.edit();
-		editor.putInt("goalSeconds", goalSeconds);
+		editor.putInt(practiceMode.toString() + "_goalSeconds",
+				currentState.goalSeconds);
 		editor.commit();
 	}
 
