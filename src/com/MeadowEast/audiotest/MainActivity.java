@@ -2,7 +2,6 @@ package com.MeadowEast.audiotest;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -42,6 +41,7 @@ import android.widget.Toast;
 
 import com.doomonafireball.betterpickers.hmspicker.HmsPickerBuilder;
 import com.doomonafireball.betterpickers.hmspicker.HmsPickerDialogFragment;
+import com.doomonafireball.betterpickers.hmspicker.HmsView;
 
 public class MainActivity extends FragmentActivity implements
 		HmsPickerDialogFragment.HmsPickerDialogHandler, OnClickListener,
@@ -53,6 +53,10 @@ public class MainActivity extends FragmentActivity implements
 		private Long elapsedMillis;
 		private int goalSeconds;
 		private boolean goalCompletionNotified;
+		private ArrayList<String> clipHistory;
+		private InputStream sample;
+		private String sampleFilename;
+		private String key;
 	}
 
 	private enum PracticeMode {
@@ -66,9 +70,6 @@ public class MainActivity extends FragmentActivity implements
 	private Decompress d;
 	private String[] cliplist;
 	private String[] enabledClipList;
-	private ArrayList<String> clipHistory;
-	private InputStream sample;
-	private String sampleFilename;
 	private String zipFile = "tingshuo-clips.zip";
 	private Random rnd;
 	private Handler clockHandler;
@@ -78,7 +79,6 @@ public class MainActivity extends FragmentActivity implements
 	private Long start;
 	private Map<String, String> hanzi;
 	private Map<String, String> instructions;
-	private String key;
 	private Toast no_previous_toast;
 	private Toast thumbsToast;
 	private SharedPreferences sharedPref;
@@ -89,7 +89,6 @@ public class MainActivity extends FragmentActivity implements
 	private void readClipInfo() throws TingShuoException {
 		hanzi = new HashMap<String, String>();
 		instructions = new HashMap<String, String>();
-		clipHistory = new ArrayList<String>();
 
 		// Open the clipinfo.txt asset
 		InputStream clipInfo = null;
@@ -211,17 +210,21 @@ public class MainActivity extends FragmentActivity implements
 		findViewById(R.id.thumbWrapper).setVisibility(View.VISIBLE);
 
 		// Open the sample
-		sampleFilename = filename;
-		sample = d.getSample(sampleFilename);
-		
-		key = sampleFilename;
+		currentState.sampleFilename = filename;
+		try {
+			currentState.sample = d.getSample(currentState.sampleFilename);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+		String key = currentState.sampleFilename;
 
 		// Remove ".mp3" from the end of the filename
-		key = key.substring(0, key.length() - 4);
+		currentState.key = key.substring(0, key.length() - 4);
 
-		// Display the instruction
+		// Display the instruction or hanzi
 		if (practiceMode == PracticeMode.LISTENING) {
-			// Display the instruction
 			displayInstruction();
 		} else {
 			displayHanzi();
@@ -235,7 +238,7 @@ public class MainActivity extends FragmentActivity implements
 			mp = null;
 		}
 	}
-	
+
 	private void playSample() throws TingShuoException {
 		if (practiceMode == PracticeMode.LISTENING)
 			displayHanzi("");
@@ -244,23 +247,32 @@ public class MainActivity extends FragmentActivity implements
 		if (!clockRunning)
 			toggleClock();
 
-		if (sample != null) {
+		if (currentState.sample != null) {
 			stopSample();
 
 			mp = new MediaPlayer();
 			mp.setAudioStreamType(AudioManager.STREAM_MUSIC);
 			try {
-				File f = File.createTempFile("tingshuo-clip", ".mp3");				
+				File f = File.createTempFile("tingshuo-clip", ".mp3");
 				FileOutputStream out = new FileOutputStream(f);
-				
+
+				// Get the current sample from the decompressor
+				try {
+					currentState.sample = d
+							.getSample(currentState.sampleFilename);
+				} catch (IOException e) {
+					errorScreen("The filename from your saved session cannot be found.");
+					return;
+				}
+
 				byte[] buffer = new byte[51200];
 				int len;
-				while ((len = sample.read(buffer)) != -1) {
-				    out.write(buffer, 0, len);
+				while ((len = currentState.sample.read(buffer)) != -1) {
+					out.write(buffer, 0, len);
 				}
 				out.close();
-				
-				mp.setDataSource(f.getPath());				
+
+				mp.setDataSource(f.getPath());
 				mp.prepare();
 				mp.start();
 			} catch (Exception e) {
@@ -272,7 +284,7 @@ public class MainActivity extends FragmentActivity implements
 	}
 
 	private void setLastSample() {
-		if (clipHistory.size() == 0) {
+		if (currentState.clipHistory.size() == 0) {
 			if (no_previous_toast != null) {
 				no_previous_toast.cancel();
 			}
@@ -282,9 +294,9 @@ public class MainActivity extends FragmentActivity implements
 			return;
 		}
 
-		int index = clipHistory.size() - 1;
+		int index = currentState.clipHistory.size() - 1;
 		try {
-			setSample(clipHistory.remove(index));
+			setSample(currentState.clipHistory.remove(index));
 		} catch (TingShuoException e) {
 			errorScreen(e.getMessage());
 			return;
@@ -301,9 +313,13 @@ public class MainActivity extends FragmentActivity implements
 
 	public void setPracticeMode(PracticeMode pm) {
 		practiceMode = pm;
-		
+
 		// Run the pause method to stop the clock
 		onPause();
+
+		// Stop the clock updating
+		if (clockHandler != null)
+			clockHandler.removeCallbacks(updateTimeTask);
 
 		// Save the practice mode
 		SharedPreferences.Editor editor = sharedPref.edit();
@@ -326,7 +342,7 @@ public class MainActivity extends FragmentActivity implements
 			setContentView(R.layout.listening_mode);
 		else if (practiceMode == PracticeMode.READING)
 			setContentView(R.layout.reading_mode);
-		
+
 		// Set the correct time
 		showTime(currentState.elapsedMillis);
 
@@ -358,22 +374,22 @@ public class MainActivity extends FragmentActivity implements
 				});
 
 		// Show the thumb buttons if there is a current sample
-		if (key != null)
+		if (currentState.key != null)
 			findViewById(R.id.thumbWrapper).setVisibility(View.VISIBLE);
 
 		// Display the appropriate info
 		if (practiceMode == PracticeMode.LISTENING) {
-			if (key != null)
+			if (currentState.key != null)
 				displayInstruction();
 		} else {
 			displayInstruction("");
-			if (key != null)
+			if (currentState.key != null)
 				displayHanzi();
 		}
 	}
 
 	public void displayInstruction() {
-		displayInstruction(getInstruction(key));
+		displayInstruction(getInstruction(currentState.key));
 	}
 
 	public void displayInstruction(String instruction) {
@@ -382,7 +398,7 @@ public class MainActivity extends FragmentActivity implements
 	}
 
 	public void displayHanzi() {
-		displayHanzi(hanzi.get(key));
+		displayHanzi(hanzi.get(currentState.key));
 	}
 
 	public void resetClipPreference() {
@@ -415,7 +431,7 @@ public class MainActivity extends FragmentActivity implements
 
 		// Setup the decompressor
 		d = new Decompress(zipFile, this);
-		
+
 		// Get the list of sample files
 		cliplist = d.getList();
 		enabledClipList = cliplist.clone();
@@ -434,6 +450,8 @@ public class MainActivity extends FragmentActivity implements
 			state.goalCompletionNotified = false;
 
 			state.elapsedMillis = 0L;
+
+			state.clipHistory = new ArrayList<String>();
 
 			// Save the state in the hashmap
 			states.put(pm, state);
@@ -471,13 +489,7 @@ public class MainActivity extends FragmentActivity implements
 			if (savedInstanceState.getBoolean("errorShowing"))
 				return;
 
-			// Restore the clip history
-			clipHistory = savedInstanceState.getBundle("data")
-					.getStringArrayList("clipHistory");
-
 			Log.d(TAG, "elapsedMillis restored to" + currentState.elapsedMillis);
-			key = savedInstanceState.getString("key");
-			sampleFilename = savedInstanceState.getString("sample");
 
 			// Retrieve each state (goalSeconds is retrieved elsewhere)
 			for (PracticeMode pm : PracticeMode.values()) {
@@ -488,6 +500,12 @@ public class MainActivity extends FragmentActivity implements
 						.toString() + "_clipPreference");
 				state.elapsedMillis = savedInstanceState.getLong(pm.toString()
 						+ "_elapsedMillis");
+				state.clipHistory = savedInstanceState.getBundle("data")
+						.getStringArrayList(pm.toString() + "_clipHistory");
+				state.sampleFilename = savedInstanceState.getString(pm
+						.toString() + "_sample");
+				state.key = savedInstanceState
+						.getString(pm.toString() + "_key");
 			}
 
 			enabledClipList = savedInstanceState
@@ -508,9 +526,10 @@ public class MainActivity extends FragmentActivity implements
 			// Set the practice mode
 			setPracticeMode(practiceMode);
 
-			if (sampleFilename.length() > 0) {
+			if (currentState.sampleFilename.length() > 0) {
 				try {
-					sample = openFileInput(sampleFilename);
+					currentState.sample = d
+							.getSample(currentState.sampleFilename);
 				} catch (IOException e) {
 					errorScreen("The filename from your saved session cannot be found.");
 					return;
@@ -567,7 +586,13 @@ public class MainActivity extends FragmentActivity implements
 			HmsPickerBuilder hpb = new HmsPickerBuilder().setFragmentManager(
 					getSupportFragmentManager()).setStyleResId(
 					R.style.BetterPickersDialogFragment_Light);
-			hpb.show();
+			
+			// Initialize the time in the picker if a goal is set
+			if (currentState.goalSeconds != 0)
+				hpb.show(getHmsPickerInitialValues());
+			else
+				hpb.show();
+			
 			return true;
 		case R.id.clearTimeGoal:
 			currentState.goalSeconds = 0;
@@ -711,28 +736,35 @@ public class MainActivity extends FragmentActivity implements
 			return;
 		}
 
-		String sampleName = "";
-		if (sample != null)
-			sampleName = sampleFilename;
-		outState.putString("sample", sampleName);
 		// onPause has stopped the clock if it was running, so we just save
 		// elapsedMillis
 		TextView t = (TextView) findViewById(R.id.instructionTextView);
 		outState.putString("instruction", t.getText().toString());
-		outState.putString("key", key);
 		outState.putBoolean("running", clockWasRunning);
 		outState.putStringArray("enabledClipList", enabledClipList);
 
 		// Save each state (but not goalSeconds, that's saved elsewhere)
+		Bundle bundle = new Bundle();
 		for (PracticeMode pm : PracticeMode.values()) {
 			TingShuoState state = states.get(pm);
+
 			outState.putBoolean(pm.toString() + "_goalCompletionNotified",
 					state.goalCompletionNotified);
 			outState.putFloatArray(pm.toString() + "_clipPreference",
 					state.clipPreference);
 			outState.putLong(pm.toString() + "_elapsedMillis",
 					state.elapsedMillis);
+			outState.putString(pm.toString() + "_key", state.key);
+
+			String sampleName = "";
+			if (state.sample != null)
+				sampleName = state.sampleFilename;
+			outState.putString(pm.toString() + "_sample", sampleName);
+
+			bundle.putStringArrayList(pm.toString() + "_clipHistory",
+					state.clipHistory);
 		}
+		outState.putBundle("data", bundle);
 
 		// Store the practice mode using an integer flag
 		int practiceModeFlag = 0;
@@ -742,15 +774,12 @@ public class MainActivity extends FragmentActivity implements
 			practiceModeFlag = 2;
 		outState.putInt("practiceModeFlag", practiceModeFlag);
 
-		// Save the clip history
-		Bundle bundle = new Bundle();
-		bundle.putStringArrayList("clipHistory", clipHistory);
-		outState.putBundle("data", bundle);
 	}
 
 	public void reset() {
 		TextView t;
-		clipHistory.clear();
+		currentState.clipHistory.clear();
+		currentState.sample = null;
 		if (clockRunning)
 			toggleClock();
 
@@ -759,7 +788,6 @@ public class MainActivity extends FragmentActivity implements
 		currentState.elapsedMillis = 0L;
 		currentState.goalCompletionNotified = false;
 
-		sample = null;
 		t = (TextView) findViewById(R.id.timerTextView);
 		t.setText("0:00");
 		displayHanzi("");
@@ -776,10 +804,11 @@ public class MainActivity extends FragmentActivity implements
 			intent.putExtra(Intent.EXTRA_SUBJECT,
 					"[TingShuo] Message to the author");
 			// Include file information if we have it
-			if (sampleFilename != null) {
+			if (currentState.sampleFilename != null) {
 				intent.putExtra(Intent.EXTRA_TEXT, "Instruction:\n"
-						+ getInstruction(key) + "\n\nHanzi:\n" + hanzi.get(key)
-						+ "\n\nFile:\n " + sampleFilename.substring(1)
+						+ getInstruction(currentState.key) + "\n\nHanzi:\n"
+						+ hanzi.get(currentState.key) + "\n\nFile:\n "
+						+ currentState.sampleFilename.substring(1)
 						+ "\n\nMessage:\n");
 			}
 			startActivity(Intent.createChooser(intent, "Send mail to author"));
@@ -817,7 +846,8 @@ public class MainActivity extends FragmentActivity implements
 	}
 
 	public void raiseClipPreference() {
-		int index = Arrays.asList(cliplist).indexOf(sampleFilename);
+		int index = Arrays.asList(cliplist)
+				.indexOf(currentState.sampleFilename);
 		float preference = currentState.clipPreference[index];
 
 		// Cancel any existing toast
@@ -841,7 +871,8 @@ public class MainActivity extends FragmentActivity implements
 	}
 
 	public void lowerClipPreference() {
-		int index = Arrays.asList(cliplist).indexOf(sampleFilename);
+		int index = Arrays.asList(cliplist)
+				.indexOf(currentState.sampleFilename);
 
 		// Halve the preference
 		currentState.clipPreference[index] /= 2;
@@ -861,8 +892,8 @@ public class MainActivity extends FragmentActivity implements
 
 		case R.id.playButton:
 			// Save the current sample
-			if (sampleFilename != null) {
-				clipHistory.add(sampleFilename);
+			if (currentState.sampleFilename != null) {
+				currentState.clipHistory.add(currentState.sampleFilename);
 			}
 			try {
 				setSample(nextRandomClip());
@@ -894,7 +925,7 @@ public class MainActivity extends FragmentActivity implements
 		case R.id.hanziButton:
 			if (!clockRunning)
 				toggleClock();
-			if (sample != null)
+			if (currentState.sample != null)
 				displayHanzi(); // Should add default value: error
 			// message if no hanzi for key
 			break;
@@ -948,6 +979,27 @@ public class MainActivity extends FragmentActivity implements
 
 	public boolean onTouch(View v, MotionEvent event) {
 		return false;
+	}
+
+	private int[] getHmsPickerInitialValues() {
+		int[] initial = new int[5];
+		int totalSeconds = currentState.goalSeconds;
+
+		// Hours ones digit
+		initial[0] = totalSeconds / (60 * 60);
+		totalSeconds -= initial[0] * 60 * 60;
+
+		// Minutes tens and ones digit
+		int minutes = totalSeconds / 60;
+		initial[1] = minutes / 10;
+		initial[2] = minutes % 10;
+		totalSeconds -= minutes * 60;
+
+		// Minutes tens and ones digit
+		initial[3] = totalSeconds / 10;
+		initial[4] = totalSeconds % 10;
+		
+		return initial;
 	}
 
 	public void onDialogHmsSet(int reference, int hours, int minutes,
