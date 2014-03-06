@@ -68,17 +68,11 @@ public class Decompress {
 
 	}
 
-	public InputStream getSample(String filename) {
+	public InputStream getSample(String filename) throws IOException {
 		InputStream sample = null;
-		
-		try {
-			sample = zipFile.getInputStream(zipFile
-					.getEntry(filename));
-		} catch (IOException e1) {
-			// TODO Auto-generated catch block
-			e1.printStackTrace();
-		}
-		
+
+		sample = zipFile.getInputStream(zipFile.getEntry(filename));
+
 		return sample;
 	}
 
@@ -87,8 +81,8 @@ public class Decompress {
 		if (zipFile == null) {
 			try {
 				// Using external file system
-				File mainDir = new File(Environment.getExternalStorageDirectory()
-						.getAbsolutePath()
+				File mainDir = new File(Environment
+						.getExternalStorageDirectory().getAbsolutePath()
 						+ "/Android/data/com.MeadowEast.audiotest/files");
 				zipFile = new ZipFile(new File(mainDir, _zipFilename));
 			} catch (IOException e) {
@@ -96,17 +90,18 @@ public class Decompress {
 				e.printStackTrace();
 			}
 		}
-		
+
 		// Go through each entry and add it to the array list
-		// Can't use an array because we don't know how many entries are in the enumeration.
+		// Can't use an array because we don't know how many entries are in the
+		// enumeration.
 		Enumeration e = zipFile.entries();
 		ArrayList<String> list = new ArrayList<String>();
 		while (e.hasMoreElements()) {
 			ZipEntry entry = (ZipEntry) e.nextElement();
-			list.add(entry.getName());			
+			list.add(entry.getName());
 		}
-		
+
 		// Convert to an array
-		return list.toArray(new String[0]);		
+		return list.toArray(new String[0]);
 	}
 }
