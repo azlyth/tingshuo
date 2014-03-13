@@ -34,6 +34,8 @@ import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.View.OnLongClickListener;
 import android.view.View.OnTouchListener;
+import android.widget.AdapterView;
+import android.widget.AdapterView.OnItemClickListener;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -41,7 +43,6 @@ import android.widget.Toast;
 
 import com.doomonafireball.betterpickers.hmspicker.HmsPickerBuilder;
 import com.doomonafireball.betterpickers.hmspicker.HmsPickerDialogFragment;
-import com.doomonafireball.betterpickers.hmspicker.HmsView;
 
 public class MainActivity extends FragmentActivity implements
 		HmsPickerDialogFragment.HmsPickerDialogHandler, OnClickListener,
@@ -57,6 +58,8 @@ public class MainActivity extends FragmentActivity implements
 		private InputStream sample;
 		private String sampleFilename;
 		private String key;
+		private boolean[] activeClips;
+		private String[] enabledClipList;
 	}
 
 	private enum PracticeMode {
@@ -69,7 +72,6 @@ public class MainActivity extends FragmentActivity implements
 	private MediaPlayer mp;
 	private Decompress d;
 	private String[] cliplist;
-	private String[] enabledClipList;
 	private String zipFile = "tingshuo-clips.zip";
 	private Random rnd;
 	private Handler clockHandler;
@@ -82,9 +84,10 @@ public class MainActivity extends FragmentActivity implements
 	private Toast no_previous_toast;
 	private Toast thumbsToast;
 	private SharedPreferences sharedPref;
-	private boolean[] activeClips;
 	static final String TAG = "CAT";
 	private boolean errorShowing;
+	private int lastClipPosition = -1;
+	private boolean lastClipSelected;
 
 	private void readClipInfo() throws TingShuoException {
 		hanzi = new HashMap<String, String>();
@@ -434,7 +437,6 @@ public class MainActivity extends FragmentActivity implements
 
 		// Get the list of sample files
 		cliplist = d.getList();
-		enabledClipList = cliplist.clone();
 
 		// Initialize states
 		states = new HashMap<PracticeMode, TingShuoState>();
@@ -452,16 +454,19 @@ public class MainActivity extends FragmentActivity implements
 			state.elapsedMillis = 0L;
 
 			state.clipHistory = new ArrayList<String>();
+			state.enabledClipList = cliplist.clone();
+			
+			// Initialize activeClips to true
+			state.activeClips = new boolean[cliplist.length];
+			for (int i = 0; i < state.activeClips.length; i++) {
+				state.activeClips[i] = true;
+			}
 
 			// Save the state in the hashmap
 			states.put(pm, state);
 		}
 
-		// Initialize activeClips to true
-		activeClips = new boolean[cliplist.length];
-		for (int i = 0; i < activeClips.length; i++) {
-			activeClips[i] = true;
-		}
+		
 
 		try {
 			readClipInfo();
@@ -506,10 +511,11 @@ public class MainActivity extends FragmentActivity implements
 						.toString() + "_sample");
 				state.key = savedInstanceState
 						.getString(pm.toString() + "_key");
+				state.enabledClipList = savedInstanceState.getStringArray(pm
+						.toString() + "_enabledClipList");
+				state.activeClips = savedInstanceState.getBooleanArray(pm
+						.toString() + "_activeClips");
 			}
-
-			enabledClipList = savedInstanceState
-					.getStringArray("enabledClipList");
 
 			// Show the thumb buttons
 			findViewById(R.id.thumbWrapper).setVisibility(View.VISIBLE);
@@ -586,13 +592,13 @@ public class MainActivity extends FragmentActivity implements
 			HmsPickerBuilder hpb = new HmsPickerBuilder().setFragmentManager(
 					getSupportFragmentManager()).setStyleResId(
 					R.style.BetterPickersDialogFragment_Light);
-			
+
 			// Initialize the time in the picker if a goal is set
 			if (currentState.goalSeconds != 0)
 				hpb.show(getHmsPickerInitialValues());
 			else
 				hpb.show();
-			
+
 			return true;
 		case R.id.clearTimeGoal:
 			currentState.goalSeconds = 0;
@@ -639,16 +645,47 @@ public class MainActivity extends FragmentActivity implements
 							}).create();
 
 			// Populate the list view
-			ListView listView = (ListView) dialogLayout
+			final ListView listView = (ListView) dialogLayout
 					.findViewById(R.id.clipsListView);
 			listView.setChoiceMode(ListView.CHOICE_MODE_MULTIPLE);
 			ArrayAdapter<String> adp = new ArrayAdapter<String>(this,
 					android.R.layout.simple_list_item_multiple_choice, cliplist);
 			listView.setAdapter(adp);
+			listView.setLongClickable(true);
+			listView.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener() {
+
+				public boolean onItemLongClick(AdapterView<?> parent,
+						View view, int position, long id) {
+					// Do the group [de]selection
+					if (lastClipPosition != -1) {
+						int start = position > lastClipPosition ? lastClipPosition
+								: position;
+						int end = position > lastClipPosition ? position
+								: lastClipPosition;
+						for (int i = start; i <= end; i++)
+							listView.setItemChecked(i, lastClipSelected);
+
+						// Set the new position
+						lastClipPosition = position;
+					}
+					return true;
+				}
+			});
+			listView.setOnItemClickListener(new OnItemClickListener() {
+
+				public void onItemClick(AdapterView<?> parent, View view,
+						int position, long id) {
+					SparseBooleanArray checked = listView
+							.getCheckedItemPositions();
+					lastClipPosition = position;
+					lastClipSelected = checked.get(position);
+				}
+
+			});
 
 			// Select the enabled clips in the list view
 			for (int i = 0; i < adp.getCount(); i++)
-				listView.setItemChecked(i, activeClips[i]);
+				listView.setItemChecked(i, currentState.activeClips[i]);
 
 			// Display the dialog
 			dialog.show();
@@ -671,17 +708,17 @@ public class MainActivity extends FragmentActivity implements
 								// Copy values into the boolean array
 								int totalActive = 0;
 								for (int i = 0; i < checked.size(); i++) {
-									activeClips[i] = checked.get(i);
-									if (activeClips[i])
+									currentState.activeClips[i] = checked.get(i);
+									if (currentState.activeClips[i])
 										totalActive++;
 								}
 
 								// Create the new list of available filenames
 								int current = 0;
-								enabledClipList = new String[totalActive];
-								for (int i = 0; i < activeClips.length; i++) {
-									if (activeClips[i]) {
-										enabledClipList[current] = cliplist[i];
+								currentState.enabledClipList = new String[totalActive];
+								for (int i = 0; i < currentState.activeClips.length; i++) {
+									if (currentState.activeClips[i]) {
+										currentState.enabledClipList[current] = cliplist[i];
 										current++;
 									}
 								}
@@ -741,7 +778,6 @@ public class MainActivity extends FragmentActivity implements
 		TextView t = (TextView) findViewById(R.id.instructionTextView);
 		outState.putString("instruction", t.getText().toString());
 		outState.putBoolean("running", clockWasRunning);
-		outState.putStringArray("enabledClipList", enabledClipList);
 
 		// Save each state (but not goalSeconds, that's saved elsewhere)
 		Bundle bundle = new Bundle();
@@ -755,6 +791,9 @@ public class MainActivity extends FragmentActivity implements
 			outState.putLong(pm.toString() + "_elapsedMillis",
 					state.elapsedMillis);
 			outState.putString(pm.toString() + "_key", state.key);
+			outState.putStringArray(pm.toString() + "_enabledClipList",
+					state.enabledClipList);
+			outState.putBooleanArray(pm.toString() + "_activeClips", state.activeClips);
 
 			String sampleName = "";
 			if (state.sample != null)
@@ -823,8 +862,9 @@ public class MainActivity extends FragmentActivity implements
 		float sum = 0;
 
 		// Add up all the probabilities
-		for (int i = 0; i < enabledClipList.length; i++) {
-			index = Arrays.asList(cliplist).indexOf(enabledClipList[i]);
+		for (int i = 0; i < currentState.enabledClipList.length; i++) {
+			index = Arrays.asList(cliplist).indexOf(
+					currentState.enabledClipList[i]);
 			sum += currentState.clipPreference[index];
 		}
 
@@ -833,12 +873,13 @@ public class MainActivity extends FragmentActivity implements
 
 		// Find the string who's probability pushes the sum above the threshold
 		sum = 0;
-		for (int i = 0; i < enabledClipList.length; i++) {
-			index = Arrays.asList(cliplist).indexOf(enabledClipList[i]);
+		for (int i = 0; i < currentState.enabledClipList.length; i++) {
+			index = Arrays.asList(cliplist).indexOf(
+					currentState.enabledClipList[i]);
 			sum += currentState.clipPreference[index];
 
 			if (sum > threshold)
-				return enabledClipList[i];
+				return currentState.enabledClipList[i];
 		}
 
 		// There is no next clip. This should not happen.
@@ -998,7 +1039,7 @@ public class MainActivity extends FragmentActivity implements
 		// Minutes tens and ones digit
 		initial[3] = totalSeconds / 10;
 		initial[4] = totalSeconds % 10;
-		
+
 		return initial;
 	}
 
@@ -1007,6 +1048,10 @@ public class MainActivity extends FragmentActivity implements
 		currentState.goalSeconds = seconds;
 		currentState.goalSeconds += minutes * 60;
 		currentState.goalSeconds += hours * 60 * 60;
+
+		// Reset selection related variables
+		lastClipPosition = -1;
+		lastClipSelected = false;
 
 		// Save this value to shared preferences so we can keep it saved
 		SharedPreferences.Editor editor = sharedPref.edit();
